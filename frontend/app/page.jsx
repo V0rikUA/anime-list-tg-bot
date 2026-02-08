@@ -37,6 +37,9 @@ function setActiveTab(nextTab) {
 export default function MiniAppDashboard() {
   useTelegramSafeArea();
 
+  const [mt, setMt] = useState('');
+  const withMt = (path) => (mt ? `${path}${path.includes('?') ? '&' : '?'}mt=${encodeURIComponent(mt)}` : path);
+
   const dispatch = useDispatch();
   const lang = useSelector((s) => s.language.current);
   const theme = useSelector((s) => s.theme?.current || 'auto');
@@ -48,6 +51,13 @@ export default function MiniAppDashboard() {
   const [inviteLink, setInviteLink] = useState('');
 
   useEffect(() => {
+    // Avoid useSearchParams() to keep static build happy (no Suspense requirement).
+    try {
+      const q = new URLSearchParams(window.location.search);
+      setMt(String(q.get('mt') || '').trim());
+    } catch {
+      setMt('');
+    }
     setMetaText(t('dashboard.loadingProfile'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
@@ -194,7 +204,7 @@ export default function MiniAppDashboard() {
     }
 
     return list.map((item) => (
-      <Link className="item-link" href={`/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
+      <Link className="item-link" href={withMt(`/title/${encodeURIComponent(item.uid)}`)} key={item.uid}>
         <article className="item">
           <div className="item-row">
             {item.imageSmall ? (
@@ -224,7 +234,7 @@ export default function MiniAppDashboard() {
     }
 
     return list.map((item) => (
-      <Link className="item-link" href={`/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
+      <Link className="item-link" href={withMt(`/title/${encodeURIComponent(item.uid)}`)} key={item.uid}>
         <article className="item">
           <div className="item-row">
             {item.imageSmall ? (

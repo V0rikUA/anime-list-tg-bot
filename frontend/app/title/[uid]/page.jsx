@@ -60,6 +60,16 @@ export default function TitlePage() {
   }, [uid, lang]);
 
   const d = state.data;
+  const [mt, setMt] = useState('');
+
+  useEffect(() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      setMt(String(q.get('mt') || '').trim());
+    } catch {
+      setMt('');
+    }
+  }, []);
 
   function getInitData() {
     const tg = window.Telegram?.WebApp;
@@ -200,7 +210,7 @@ export default function TitlePage() {
   return (
     <main className="app">
       <header className="topbar">
-        <button className="btn" type="button" onClick={() => router.push('/')}>
+        <button className="btn" type="button" onClick={() => router.push(mt ? `/?mt=${encodeURIComponent(mt)}` : '/')}>
           {t('title.back')}
         </button>
         <div className="actions">
