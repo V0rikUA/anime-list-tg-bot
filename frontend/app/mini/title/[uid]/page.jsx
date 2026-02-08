@@ -77,7 +77,7 @@ export default function TitlePage() {
           <div className="title-hero">
             {d.imageLarge ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="title-cover" src={d.imageLarge} alt={d.title} />
+              <img className="title-cover" src={d.imageLarge} alt={d.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
             ) : null}
             <div className="title-meta">
               <h1 className="title-h1">{d.title}</h1>

@@ -113,7 +113,7 @@ export default function MiniAppDashboard() {
           <div className="item-row">
             {item.imageSmall ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="thumb" src={item.imageSmall} alt="" />
+              <img className="thumb" src={item.imageSmall} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
             ) : (
               <div className="thumb" />
             )}
@@ -143,7 +143,7 @@ export default function MiniAppDashboard() {
           <div className="item-row">
             {item.imageSmall ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img className="thumb" src={item.imageSmall} alt="" />
+              <img className="thumb" src={item.imageSmall} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
             ) : (
               <div className="thumb" />
             )}

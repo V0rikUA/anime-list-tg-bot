@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import knex from 'knex';
+import { fetchAnimeDetails } from './services/animeSources.js';
 
 const TRACK_LIST_TYPES = new Set(['watched', 'planned', 'favorite']);
 const SUPPORTED_LANGS = new Set(['en', 'ru', 'uk']);
@@ -470,6 +471,9 @@ export class AnimeRepository {
         'a.score',
         'a.status',
         'a.url',
+        'a.image_small',
+        'a.image_large',
+        'a.synopsis_en',
         'r.created_at as added_at'
       );
 
@@ -497,6 +501,9 @@ export class AnimeRepository {
         'a.score',
         'a.status',
         'a.url',
+        'a.image_small',
+        'a.image_large',
+        'a.synopsis_en',
         'r.created_at as recommended_at',
         'u.telegram_id',
         'u.username',
@@ -516,6 +523,9 @@ export class AnimeRepository {
           score: row.score,
           status: row.status,
           url: row.url,
+          imageSmall: row.image_small ?? null,
+          imageLarge: row.image_large ?? null,
+          synopsisEn: row.synopsis_en ?? null,
           recommendedAt: row.recommended_at,
           recommendCount: 0,
           recommenders: []
@@ -623,6 +633,40 @@ export class AnimeRepository {
       this.getFriends(telegramId)
     ]);
 
+    const allAnime = [...watched, ...planned, ...favorites, ...recommendedFromFriends];
+    const missingUids = Array.from(new Set(
+      allAnime
+        .filter((a) => a && a.uid && !a.imageSmall)
+        .map((a) => String(a.uid))
+    ));
+
+    // Best-effort: enrich posters for previously saved items (older DB rows).
+    const detailsByUid = new Map();
+    const fetchLimit = 10;
+    await Promise.all(
+      missingUids.slice(0, fetchLimit).map(async (uid) => {
+        try {
+          const details = await fetchAnimeDetails(uid);
+          if (!details) return;
+          detailsByUid.set(uid, details);
+          await this.upsertAnime(details);
+        } catch {
+          // ignore enrichment failures
+        }
+      })
+    );
+
+    const mergeDetails = (item) => {
+      const d = detailsByUid.get(item.uid);
+      if (!d) return item;
+      return {
+        ...item,
+        imageSmall: item.imageSmall ?? d.imageSmall ?? null,
+        imageLarge: item.imageLarge ?? d.imageLarge ?? null,
+        synopsisEn: item.synopsisEn ?? d.synopsisEn ?? null
+      };
+    };
+
     return {
       user: user
         ? {
@@ -633,10 +677,10 @@ export class AnimeRepository {
             lang: user.lang || null
           }
         : null,
-      watched,
-      planned,
-      favorites,
-      recommendedFromFriends,
+      watched: watched.map(mergeDetails),
+      planned: planned.map(mergeDetails),
+      favorites: favorites.map(mergeDetails),
+      recommendedFromFriends: recommendedFromFriends.map(mergeDetails),
       friends
     };
   }
@@ -665,6 +709,40 @@ export class AnimeRepository {
 
   async upsertAnimeInTransaction(trx, anime) {
     await trx('anime').insert({
+      uid: anime.uid,
+      source: anime.source,
+      external_id: anime.externalId,
+      title: anime.title,
+      episodes: anime.episodes,
+      score: anime.score,
+      status: anime.status,
+      url: anime.url,
+      image_small: anime.imageSmall,
+      image_large: anime.imageLarge,
+      synopsis_en: anime.synopsisEn,
+      updated_at: this.db.fn.now()
+    }).onConflict('uid').merge({
+      source: this.db.raw('excluded.source'),
+      external_id: this.db.raw('excluded.external_id'),
+      title: this.db.raw('excluded.title'),
+      episodes: this.db.raw('excluded.episodes'),
+      score: this.db.raw('excluded.score'),
+      status: this.db.raw('excluded.status'),
+      url: this.db.raw('excluded.url'),
+      image_small: this.db.raw('excluded.image_small'),
+      image_large: this.db.raw('excluded.image_large'),
+      synopsis_en: this.db.raw('excluded.synopsis_en'),
+      updated_at: this.db.fn.now()
+    });
+  }
+
+  /**
+   * Upsert anime record (used for best-effort enrichment).
+   * @param {any} animeRaw
+   */
+  async upsertAnime(animeRaw) {
+    const anime = normalizeAnime(animeRaw);
+    await this.db('anime').insert({
       uid: anime.uid,
       source: anime.source,
       external_id: anime.externalId,

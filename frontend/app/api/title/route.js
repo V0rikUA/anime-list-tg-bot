@@ -10,6 +10,31 @@ const ANILIST_URL = 'https://graphql.anilist.co';
  */
 const translateCache = new Map();
 
+function decodeEntities(text) {
+  const t = String(text || '');
+  return t
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ');
+}
+
+function toPlainText(text) {
+  let t = String(text || '');
+  if (!t.trim()) return '';
+
+  // Keep line breaks, drop other tags.
+  t = t.replace(/<\s*br\s*\/?\s*>/gi, '\n');
+  t = t.replace(/<\/?[^>]+>/g, '');
+  t = decodeEntities(t);
+
+  // Normalize whitespace a bit.
+  t = t.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+
 /** @param {string} key */
 function cacheGet(key) {
   const hit = translateCache.get(key);
@@ -136,7 +161,7 @@ async function fetchJikanDetails(id) {
     url: a?.url ?? null,
     imageSmall: a?.images?.jpg?.image_url || null,
     imageLarge: a?.images?.jpg?.large_image_url || a?.images?.jpg?.image_url || null,
-    synopsisEn: a?.synopsis || null
+    synopsisEn: toPlainText(a?.synopsis || '')
   };
 }
 
@@ -190,7 +215,7 @@ async function fetchAniListDetails(id) {
     url: m?.siteUrl ?? null,
     imageSmall: m?.coverImage?.medium || null,
     imageLarge: m?.coverImage?.large || m?.coverImage?.medium || null,
-    synopsisEn: m?.description || null
+    synopsisEn: toPlainText(m?.description || '')
   };
 }
 
