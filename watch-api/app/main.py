@@ -2,6 +2,7 @@ import os
 import time
 import secrets
 import importlib
+import inspect
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -59,18 +60,42 @@ def _safe_str(v: Any, limit: int = 2000) -> str:
     return s
 
 
+async def _maybe_await(v: Any) -> Any:
+    if inspect.isawaitable(v):
+        return await v
+    return v
+
+
+async def _call(obj: Any, async_name: str, sync_name: str, *args: Any, **kwargs: Any) -> Any:
+    """
+    `anicli_api` has changed its public API across 0.x; some versions expose async methods
+    (`a_*`) and others expose sync methods without the prefix. This helper tries both.
+    """
+    fn = getattr(obj, async_name, None) or getattr(obj, sync_name, None)
+    if fn is None:
+        raise AttributeError(f"missing method {async_name}/{sync_name}")
+    return await _maybe_await(fn(*args, **kwargs))
+
+
 def _get_extractor(source: str):
-    # anicli_api sources live under anicli_api.source.<name>
-    # Each module exports Extractor.
-    name = _safe_str(source, 64).lower()
-    if not name or any(c for c in name if not (c.isalnum() or c in ("_", "-"))):
+    # anicli_api sources have moved between `anicli_api.source.*` and `anicli_api.sources.*`
+    # across 0.x releases. Try both.
+    raw = _safe_str(source, 64).lower()
+    name = raw.replace("-", "_")
+    if not name or any(c for c in name if not (c.isalnum() or c == "_")):
         raise ValueError("invalid source")
-    mod_name = f"anicli_api.source.{name}"
-    mod = importlib.import_module(mod_name)
-    Extractor = getattr(mod, "Extractor", None)
-    if Extractor is None:
-        raise ValueError("Extractor not found")
-    return Extractor()
+    last_err: Optional[Exception] = None
+    for base in ("anicli_api.source", "anicli_api.sources"):
+        try:
+            mod = importlib.import_module(f"{base}.{name}")
+            Extractor = getattr(mod, "Extractor", None)
+            if Extractor is None:
+                raise ValueError("Extractor not found")
+            return Extractor()
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            continue
+    raise ValueError(f"failed to import extractor '{raw}'") from last_err
 
 
 class HealthOut(BaseModel):
@@ -174,7 +199,7 @@ async def search(
     for src in sources_to_try:
         try:
             extractor = _get_extractor(src)
-            results = await extractor.a_search(query)  # type: ignore[attr-defined]
+            results = await _call(extractor, "a_search", "search", query)
             if not results:
                 continue
             for r in results[:limit]:
@@ -209,8 +234,8 @@ async def episodes(animeRef: str = Query(..., min_length=16, max_length=128)):
 
     search_obj = item["obj"]
     try:
-        anime = await search_obj.a_get_anime()  # type: ignore[attr-defined]
-        eps = await anime.a_get_episodes()  # type: ignore[attr-defined]
+        anime = await _call(search_obj, "a_get_anime", "get_anime")
+        eps = await _call(anime, "a_get_episodes", "get_episodes")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch episodes: {type(e).__name__}") from e
 
@@ -237,8 +262,8 @@ async def sources_for_episode(
 
     search_obj = item["obj"]
     try:
-        anime = await search_obj.a_get_anime()  # type: ignore[attr-defined]
-        eps = await anime.a_get_episodes()  # type: ignore[attr-defined]
+        anime = await _call(search_obj, "a_get_anime", "get_anime")
+        eps = await _call(anime, "a_get_episodes", "get_episodes")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch episodes: {type(e).__name__}") from e
 
@@ -253,7 +278,7 @@ async def sources_for_episode(
         raise HTTPException(status_code=404, detail="episode not found")
 
     try:
-        srcs = await target.a_get_sources()  # type: ignore[attr-defined]
+        srcs = await _call(target, "a_get_sources", "get_sources")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch sources: {type(e).__name__}") from e
 
@@ -280,7 +305,7 @@ async def videos(sourceRef: str = Query(..., min_length=16, max_length=128)):
 
     src_obj = item["obj"]
     try:
-        vids = await src_obj.a_get_videos()  # type: ignore[attr-defined]
+        vids = await _call(src_obj, "a_get_videos", "get_videos")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch videos: {type(e).__name__}") from e
 
@@ -299,4 +324,3 @@ async def videos(sourceRef: str = Query(..., min_length=16, max_length=128)):
         )
 
     return {"ok": True, "videos": out}
-
