@@ -258,6 +258,8 @@ h1 {
   padding: 10px 12px;
   color: var(--text);
   outline: none;
+  /* Prevent iOS WebView auto-zoom on focus (happens when font-size < 16px). */
+  font-size: 16px;
 }
 
 .search-input::placeholder {
