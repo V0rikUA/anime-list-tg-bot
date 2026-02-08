@@ -444,11 +444,12 @@ export default function TitlePage() {
               {watchState.step === 'videos' && watchState.videos?.length ? (
                 <>
                   <p className="meta">{t('title.watchPickQuality')}</p>
-                  {watchState.videos.map((v, idx) => (
-                    <div className="row" key={`${idx}:${v.url}`}>
-                      {canInlinePlay(v) ? (
+                  <div className="row">
+                    {watchState.videos.map((v, idx) =>
+                      canInlinePlay(v) ? (
                         <button
                           className="select"
+                          key={`${idx}:${v.url}`}
                           type="button"
                           onClick={() => {
                             setPlayerState({
@@ -460,9 +461,9 @@ export default function TitlePage() {
                         >
                           {qualityLabel(v)}
                         </button>
-                      ) : null}
-                    </div>
-                  ))}
+                      ) : null
+                    )}
+                  </div>
                 </>
               ) : null}
             </div>
