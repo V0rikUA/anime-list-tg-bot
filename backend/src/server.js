@@ -277,16 +277,110 @@ export async function startApiServer({
     const validation = validateInitDataOrReply(request, reply);
     if (!validation) return;
 
-    const q = String(request.body?.q || '').trim();
+    const uid = String(request.body?.uid || '').trim();
+    let q = String(request.body?.q || '').trim();
     const source = request.body?.source ? String(request.body.source) : '';
     const limit = Number(request.body?.limit || 5);
-    if (!q) return reply.code(400).send({ ok: false, error: 'q is required' });
+
+    const user = await repository.getUserByTelegramId(validation.telegramUserId);
+    if (!user) {
+      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    }
+
+    let map = uid ? await repository.getWatchMap(uid) : null;
+
+    if (!q && uid) {
+      const anime = await repository.getCatalogItemLocalized(uid, user.lang || 'en');
+      if (!anime) {
+        return reply.code(404).send({ ok: false, error: 'anime not found' });
+      }
+      q = anime.title;
+    }
+
+    if (!q) return reply.code(400).send({ ok: false, error: 'q or uid is required' });
+
+    const preferredSource = source || map?.watchSource || '';
 
     try {
-      const out = await watchSearch({ q, source: source || null, limit: Number.isFinite(limit) ? limit : 5 });
-      return reply.send(out);
+      const out = await watchSearch({ q, source: preferredSource || null, limit: Number.isFinite(limit) ? limit : 5 });
+      const items = Array.isArray(out?.items) ? out.items : [];
+
+      let autoPick = null;
+      if (map?.watchUrl) {
+        const match = items.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
+        if (match?.animeRef) {
+          autoPick = match;
+        }
+      }
+
+      // If no mapping exists yet and the search is unambiguous, bind automatically.
+      if (!map && uid && items.length === 1) {
+        const only = items[0];
+        const watchSource = String(only?.source || '').trim();
+        const watchUrl = String(only?.url || '').trim();
+        if (watchSource && watchUrl) {
+          try {
+            await repository.setWatchMap(uid, watchSource, watchUrl, String(only?.title || '').trim() || null);
+            map = await repository.getWatchMap(uid);
+            if (only?.animeRef) autoPick = only;
+          } catch {
+            // ignore autobind failure
+          }
+        }
+      }
+
+      // If we have a stored mapping, reorder list with exact match first.
+      const ordered = autoPick
+        ? [autoPick, ...items.filter((it) => it !== autoPick)]
+        : items;
+
+      return reply.send({
+        ok: true,
+        items: ordered,
+        map: map ? { uid, watchSource: map.watchSource, watchUrl: map.watchUrl, watchTitle: map.watchTitle } : null,
+        autoPick
+      });
     } catch (error) {
       return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/webapp/watch/bind', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    const watchSource = String(request.body?.watchSource || request.body?.source || '').trim();
+    const watchUrl = String(request.body?.watchUrl || request.body?.url || '').trim();
+    const watchTitle = request.body?.watchTitle || request.body?.title || null;
+
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+    if (!watchSource) return reply.code(400).send({ ok: false, error: 'watchSource is required' });
+    if (!watchUrl) return reply.code(400).send({ ok: false, error: 'watchUrl is required' });
+
+    try {
+      await repository.ensureUser({ id: validation.telegramUserId });
+      await repository.setWatchMap(uid, watchSource, watchUrl, watchTitle);
+      return reply.send({ ok: true });
+    } catch (error) {
+      const msg = error?.message === 'anime_not_found' ? 'anime not found' : (error?.message || String(error));
+      return reply.code(400).send({ ok: false, error: msg });
+    }
+  });
+
+  app.post('/api/webapp/watch/unbind', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+
+    try {
+      await repository.ensureUser({ id: validation.telegramUserId });
+      await repository.clearWatchMap(uid);
+      return reply.send({ ok: true });
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: error?.message || String(error) });
     }
   });
 
