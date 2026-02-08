@@ -1,5 +1,6 @@
 import Script from 'next/script';
 import './globals.css';
+import Providers from '../lib/Providers';
 
 export const metadata = {
   title: 'Anime Dashboard',
@@ -12,8 +13,9 @@ export default function RootLayout({ children }) {
       <head>
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       </head>
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }
-

@@ -25,7 +25,8 @@ body {
 }
 
 .app {
-  padding: 16px;
+  /* Telegram iOS WebView can overlap content with the status/URL bar. */
+  padding: calc(16px + env(safe-area-inset-top, 0px) + var(--tg-safe-area-top, 0px)) 16px 16px;
   max-width: 900px;
   margin: 0 auto;
   display: grid;
@@ -146,6 +147,27 @@ h1 {
   background: #fff;
 }
 
+.item-link {
+  text-decoration: none;
+  color: inherit;
+}
+
+.item-row {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 10px;
+  align-items: center;
+}
+
+.thumb {
+  width: 52px;
+  height: 70px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #f0f0f0;
+}
+
 .item-title {
   margin: 0;
   font-weight: 700;
@@ -180,9 +202,78 @@ h1 {
   font-weight: 700;
 }
 
+.title-hero {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+.title-cover {
+  width: 120px;
+  height: 170px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #f0f0f0;
+}
+
+.title-h1 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.kv {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.kv-row {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.kv-k {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sep {
+  height: 1px;
+  background: var(--line);
+  margin: 12px 0;
+}
+
+.synopsis {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.link {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 @media (min-width: 720px) {
   .stats-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
-}
 
+  .title-hero {
+    grid-template-columns: 160px 1fr;
+  }
+
+  .title-cover {
+    width: 160px;
+    height: 230px;
+  }
+}
