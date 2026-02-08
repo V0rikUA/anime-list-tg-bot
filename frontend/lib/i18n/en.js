@@ -52,6 +52,10 @@ export const en = {
     watchPickEpisode: 'Pick an episode',
     watchPickSource: 'Pick a source',
     watchPickQuality: 'Pick a quality',
+    watchPlay: 'Play',
+    watchPlayerTitle: 'Player',
+    watchPlayerFailed: 'Inline playback failed. Open the link instead.',
+    close: 'Close',
     watchOpen: 'Open',
     watchBlocked: 'This link may require special headers; open in browser.',
     watchErr: 'Failed to load watch links'

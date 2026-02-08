@@ -319,6 +319,61 @@ h1 {
   font-weight: 700;
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: calc(14px + env(safe-area-inset-top, 0px) + var(--tg-safe-area-top, 0px)) 14px
+    calc(14px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+}
+
+.modal {
+  width: min(900px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.modal-body {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.player {
+  width: 100%;
+  background: #000;
+  border-radius: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;

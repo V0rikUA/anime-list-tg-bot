@@ -52,6 +52,10 @@ export const ru = {
     watchPickEpisode: 'Выбери эпизод',
     watchPickSource: 'Выбери источник',
     watchPickQuality: 'Выбери качество',
+    watchPlay: 'Смотреть',
+    watchPlayerTitle: 'Плеер',
+    watchPlayerFailed: 'Не удалось запустить плеер. Открой ссылку.',
+    close: 'Закрыть',
     watchOpen: 'Открыть',
     watchBlocked: 'Может требовать спец. заголовки; открой в браузере.',
     watchErr: 'Не удалось загрузить ссылки'
