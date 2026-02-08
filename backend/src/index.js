@@ -678,7 +678,8 @@ if (!bot) {
 
       // If we have a stored binding, try to resolve it to a fresh animeRef and jump to episodes.
       if (map?.watchSource && map?.watchUrl) {
-        const mappedOut = await watchSearch({ q: anime.title, source: map.watchSource, limit: 5 });
+        // Search in watch sources by EN title for better matching.
+        const mappedOut = await watchSearch({ q: String(anime.titleEn || anime.title || '').trim(), source: map.watchSource, limit: 5 });
         const mappedItems = Array.isArray(mappedOut?.items) ? mappedOut.items : [];
         const match = mappedItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
         if (match?.animeRef) {
@@ -700,7 +701,8 @@ if (!bot) {
         }
       }
 
-      const out = await watchSearch({ q: anime.title, limit: 5 });
+      // Search in watch sources by EN title for better matching.
+      const out = await watchSearch({ q: String(anime.titleEn || anime.title || '').trim(), limit: 5 });
       const items = Array.isArray(out?.items) ? out.items : [];
       session.watch = {
         uid: anime.uid,

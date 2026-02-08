@@ -290,11 +290,12 @@ export async function startApiServer({
     let map = uid ? await repository.getWatchMap(uid) : null;
 
     if (!q && uid) {
-      const anime = await repository.getCatalogItemLocalized(uid, user.lang || 'en');
+      // For watch sources, English title usually yields better matches than localized titles.
+      const anime = await repository.getCatalogItem(uid);
       if (!anime) {
         return reply.code(404).send({ ok: false, error: 'anime not found' });
       }
-      q = anime.title;
+      q = String(anime.titleEn || anime.title || '').trim();
     }
 
     if (!q) return reply.code(400).send({ ok: false, error: 'q or uid is required' });
