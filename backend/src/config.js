@@ -52,7 +52,7 @@ export const config = {
   apiBaseUrl: process.env.API_BASE_URL || `http://localhost:${rawPort}`,
   // Used for Telegram Mini App "Web App" button (must be HTTPS in Telegram).
   webAppUrl: process.env.WEB_APP_URL || `${process.env.FRONTEND_BASE_URL || 'http://localhost:3000'}/`,
-  // Shared secret used by Next.js middleware to allow /mini/* access.
+  // Shared secret used by Next.js middleware to allow Mini App pages access.
   // Add it to the Mini App URL as `?mt=...` from bot/backend code.
   miniAppAccessToken: process.env.MINIAPP_ACCESS_TOKEN || '',
 
