@@ -9,6 +9,7 @@
     "dev": "node --watch src/index.js",
     "check": "node --check src/index.js",
     "migrate": "node src/scripts/migrate.js",
+    "index:watch": "node src/scripts/indexWatchBindings.js",
     "webhook:set": "node src/scripts/webhook.js set",
     "webhook:info": "node src/scripts/webhook.js info",
     "webhook:delete": "node src/scripts/webhook.js delete"
