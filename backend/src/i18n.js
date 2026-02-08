@@ -87,6 +87,9 @@ const DICT = {
     act_plan: 'Plan',
     act_favorite: 'Favorite',
     act_recommend: 'Recommend'
+    ,
+    webapp_https_required: 'Mini App button requires HTTPS. Set WEB_APP_URL to an https:// URL (for example via Cloudflared tunnel).',
+    webapp_open_link: 'Mini App link: {url}'
   },
   ru: {
     help_title: 'Команды:',
@@ -165,6 +168,9 @@ const DICT = {
     act_plan: 'В план',
     act_favorite: 'В избранное',
     act_recommend: 'Рекомендовать'
+    ,
+    webapp_https_required: 'Кнопка Mini App требует HTTPS. Укажи WEB_APP_URL как https:// (например через Cloudflared туннель).',
+    webapp_open_link: 'Ссылка на Mini App: {url}'
   },
   uk: {
     help_title: 'Команди:',
@@ -243,6 +249,9 @@ const DICT = {
     act_plan: 'В план',
     act_favorite: 'В обране',
     act_recommend: 'Рекомендувати'
+    ,
+    webapp_https_required: 'Кнопка Mini App потребує HTTPS. Вкажи WEB_APP_URL як https:// (наприклад через Cloudflared тунель).',
+    webapp_open_link: 'Посилання на Mini App: {url}'
   }
 };
 

@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: anime_postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-animebot}
@@ -17,11 +16,10 @@ services:
       timeout: 5s
       retries: 20
 
-  app:
+  backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: anime_backend
     restart: unless-stopped
     depends_on:
       postgres:
@@ -44,7 +42,20 @@ services:
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
-      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:4000/app}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/app}
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      BACKEND_URL: http://backend:4000
 
 volumes:
   postgres_data:

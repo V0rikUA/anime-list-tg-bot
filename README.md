@@ -14,7 +14,8 @@ Bot features:
 ## Setup
 
 ```bash
-npm install
+cd backend && npm install
+cd ../frontend && npm install
 cp .env.example .env
 ```
 
@@ -36,7 +37,10 @@ Also set Mini App URL in BotFather:
 docker compose up --build -d
 ```
 
-Backend: `http://localhost:4000`
+Backend API: `http://localhost:4000`
+Dashboard (Next.js): `http://localhost:3000/app`
+
+For Telegram Mini App you must use an HTTPS URL (domain or tunnel) that points to the Next.js service (port 3000) and set `WEB_APP_URL` to `https://<domain>/app`.
 
 ## Dev (Docker + Postgres + Hot Reload)
 
@@ -45,13 +49,14 @@ docker compose -f docker-compose.dev.yml up --build
 ```
 
 Dev compose runs `scripts/docker-start.sh` (migrations + optional webhook setup) and then starts `npm run dev`.
+In this repo layout the script is located at `backend/scripts/docker-start.sh`.
 
 ## Run (without Docker)
 
 Use sqlite fallback:
 
 ```bash
-DB_CLIENT=sqlite3 npm start
+cd backend && DB_CLIENT=sqlite3 npm start
 ```
 
 ## Migrations
@@ -61,13 +66,13 @@ Application runs migrations on startup automatically.
 Manual run:
 
 ```bash
-npm run migrate
+cd backend && npm run migrate
 ```
 
 Inside docker:
 
 ```bash
-docker compose exec app npm run migrate
+docker compose exec backend npm run migrate
 ```
 
 ## Telegram commands
@@ -154,9 +159,9 @@ cloudflared tunnel --url http://localhost:4000
 4. Apply webhook:
 
 ```bash
-npm run webhook:delete
-npm run webhook:set
-npm run webhook:info
+cd backend && npm run webhook:delete
+cd backend && npm run webhook:set
+cd backend && npm run webhook:info
 ```
 
 Backend requirements:

@@ -5,6 +5,34 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 
+function extractInitDataMeta(initDataRaw) {
+  const initData = String(initDataRaw || '').trim();
+  if (!initData) return null;
+
+  // Never log the raw initData (contains user + hash).
+  const params = new URLSearchParams(initData);
+  const authDate = Number(params.get('auth_date') || 0);
+
+  let userId = null;
+  try {
+    const userRaw = params.get('user');
+    if (userRaw) {
+      const user = JSON.parse(userRaw);
+      if (user?.id) userId = String(user.id);
+    }
+  } catch {
+    // ignore
+  }
+
+  return {
+    initDataLen: initData.length,
+    hasHash: Boolean(params.get('hash')),
+    hasUser: Boolean(params.get('user')),
+    authDate: Number.isFinite(authDate) ? authDate : null,
+    userId
+  };
+}
+
 export async function startApiServer({
   repository,
   port,
@@ -125,6 +153,11 @@ export async function startApiServer({
     });
 
     if (!validation.ok) {
+      const meta = extractInitDataMeta(initData);
+      app.log.warn(
+        { error: validation.error, meta },
+        'telegram initData validation failed (webapp dashboard)'
+      );
       return reply.code(401).send(validation);
     }
 
@@ -138,6 +171,27 @@ export async function startApiServer({
       telegramUserId: validation.telegramUserId,
       ...dashboard
     };
+  });
+
+  // Client-side diagnostic logs from the Mini App (optional).
+  app.post('/api/client-log', async (request, reply) => {
+    const body = request.body || {};
+    const event = typeof body.event === 'string' ? body.event.slice(0, 64) : 'unknown';
+    const message = typeof body.message === 'string' ? body.message.slice(0, 500) : null;
+    const data = body.data && typeof body.data === 'object' ? body.data : null;
+
+    app.log.info(
+      {
+        event,
+        message,
+        data,
+        ua: request.headers['user-agent'] || null,
+        ip: request.ip
+      },
+      'client-log'
+    );
+
+    return reply.send({ ok: true });
   });
 
   // Legacy/debug endpoint. Mini App should use /api/webapp/dashboard.

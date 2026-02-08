@@ -52,6 +52,15 @@ function buildMiniAppUrl(telegramUserId) {
   return url.toString();
 }
 
+function isHttpsUrl(urlRaw) {
+  try {
+    const url = new URL(String(urlRaw || ''));
+    return url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function uiLabels(lang) {
   if (lang === 'ru') {
     return {
@@ -131,8 +140,9 @@ async function ensureUserAndLang(ctx, repository) {
 
 function mainMenuKeyboard(ctx, lang) {
   const webAppUrl = buildMiniAppUrl(ctx.from.id);
+  const canUseWebAppButton = isHttpsUrl(webAppUrl);
 
-  return Markup.inlineKeyboard([
+  const rows = [
     [
       Markup.button.callback(t(lang, 'menu_search'), 'menu:search'),
       Markup.button.callback(t(lang, 'menu_watched'), 'menu:watched'),
@@ -145,19 +155,39 @@ function mainMenuKeyboard(ctx, lang) {
     ],
     [
       Markup.button.callback(t(lang, 'menu_invite'), 'menu:invite'),
-      Markup.button.webApp(t(lang, 'menu_app'), webAppUrl)
+      canUseWebAppButton
+        ? Markup.button.webApp(t(lang, 'menu_app'), webAppUrl)
+        : Markup.button.callback(t(lang, 'menu_app'), 'menu:app')
     ],
     [
       Markup.button.callback(t(lang, 'menu_language'), 'menu:lang'),
       Markup.button.callback(t(lang, 'menu_help'), 'menu:help')
     ]
-  ]);
+  ];
+
+  return Markup.inlineKeyboard(rows);
 }
 
 function cancelKeyboard(lang) {
   return Markup.inlineKeyboard([
     [Markup.button.callback(t(lang, 'menu_cancel'), 'menu:cancel')]
   ]);
+}
+
+async function cleanupCallbackMessage(ctx) {
+  // Best-effort: don't fail the handler if Telegram rejects deletion/edit.
+  try {
+    await ctx.answerCbQuery();
+  } catch {
+    // ignore
+  }
+
+  try {
+    // Deletes the message that contained the pressed inline button.
+    await ctx.deleteMessage();
+  } catch {
+    // ignore
+  }
 }
 
 function pickKeyboard(lang, count) {
@@ -279,15 +309,11 @@ if (!bot) {
     );
   });
 
-  bot.action(/^menu:(search|watched|planned|favorites|feed|friends|invite|lang|help|cancel)$/, async (ctx) => {
+  bot.action(/^menu:(search|watched|planned|favorites|feed|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
     const lang = await ensureUserAndLang(ctx, repository);
     const action = String(ctx.match?.[1] || '');
 
-    try {
-      await ctx.answerCbQuery();
-    } catch {
-      // ignore
-    }
+    await cleanupCallbackMessage(ctx);
 
     if (action === 'cancel') {
       userState.delete(String(ctx.from.id));
@@ -363,6 +389,21 @@ if (!bot) {
       await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
       return;
     }
+
+    if (action === 'app') {
+      const url = buildMiniAppUrl(ctx.from.id);
+      if (isHttpsUrl(url)) {
+        await ctx.reply(
+          t(lang, 'open_miniapp'),
+          Markup.inlineKeyboard([Markup.button.webApp(t(lang, 'btn_open_miniapp'), url)])
+        );
+      } else {
+        await ctx.reply(t(lang, 'webapp_https_required'));
+        await ctx.reply(t(lang, 'webapp_open_link', { url }));
+      }
+      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      return;
+    }
   });
 
   bot.action(/^lang:(en|ru|uk)$/, async (ctx) => {
@@ -370,19 +411,8 @@ if (!bot) {
     const out = await repository.setUserLang(String(ctx.from.id), selected);
     const lang = out.ok ? out.lang : guessLangFromTelegram(ctx.from);
 
-    try {
-      await ctx.answerCbQuery();
-    } catch {
-      // ignore
-    }
-
-    const message = `${t(lang, 'lang_updated', { lang: (LANG_LABELS[lang] || lang) })}\n\n${t(lang, 'start_ready')}`;
-    try {
-      await ctx.editMessageText(message);
-    } catch {
-      await ctx.reply(message);
-    }
-
+    await cleanupCallbackMessage(ctx);
+    await ctx.reply(`${t(lang, 'lang_updated', { lang: (LANG_LABELS[lang] || lang) })}\n\n${t(lang, 'start_ready')}`);
     await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
   });
 
@@ -626,12 +656,14 @@ if (!bot) {
   bot.command('app', async (ctx) => {
     const lang = await ensureUserAndLang(ctx, repository);
     const webAppUrl = buildMiniAppUrl(ctx.from.id);
-    await ctx.reply(
-      t(lang, 'open_miniapp'),
-      Markup.inlineKeyboard([
-        Markup.button.webApp(t(lang, 'btn_open_miniapp'), webAppUrl)
-      ])
-    );
+    if (!isHttpsUrl(webAppUrl)) {
+      await ctx.reply(t(lang, 'webapp_https_required'));
+      await ctx.reply(t(lang, 'webapp_open_link', { url: webAppUrl }));
+      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      return;
+    }
+
+    await ctx.reply(t(lang, 'open_miniapp'), Markup.inlineKeyboard([Markup.button.webApp(t(lang, 'btn_open_miniapp'), webAppUrl)]));
   });
 
   bot.action(/^pick:(\d+)$/, async (ctx) => {
@@ -640,11 +672,7 @@ if (!bot) {
     const state = userState.get(String(ctx.from.id));
     const results = state?.search?.results;
 
-    try {
-      await ctx.answerCbQuery();
-    } catch {
-      // ignore
-    }
+    await cleanupCallbackMessage(ctx);
 
     if (!Array.isArray(results) || idx < 0 || idx >= results.length) {
       await ctx.reply(t(lang, 'pick_result'), cancelKeyboard(lang));
@@ -663,11 +691,7 @@ if (!bot) {
     const state = userState.get(String(ctx.from.id));
     const results = state?.search?.results;
 
-    try {
-      await ctx.answerCbQuery();
-    } catch {
-      // ignore
-    }
+    await cleanupCallbackMessage(ctx);
 
     if (!Array.isArray(results) || results.length === 0) {
       await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
@@ -684,11 +708,7 @@ if (!bot) {
     const kind = String(ctx.match?.[1] || '');
     const uid = String(ctx.match?.[2] || '').trim();
 
-    try {
-      await ctx.answerCbQuery();
-    } catch {
-      // ignore
-    }
+    await cleanupCallbackMessage(ctx);
 
     const anime = await repository.getCatalogItem(uid);
     if (!anime) {
@@ -773,7 +793,13 @@ if (!bot) {
   bot.catch(async (error, ctx) => {
     logger.error('bot error', error);
     const lang = ctx?.from ? await ensureUserAndLang(ctx, repository) : 'en';
-    await ctx.reply(t(lang, 'unexpected_error'));
+    try {
+      await ctx.reply(t(lang, 'unexpected_error'));
+    } catch (replyError) {
+      logger.warn('failed to send error message to telegram', {
+        error: replyError?.message || String(replyError)
+      });
+    }
   });
 }
 
@@ -795,16 +821,29 @@ logger.info('api server started', {
 
 if (bot) {
   if (config.telegramWebhookUrl) {
-    const me = await bot.telegram.getMe();
-    bot.botInfo = me;
+    // In webhook mode we don't need to call Telegram API on startup.
+    // Network policies/DNS issues can block api.telegram.org and should not crash the backend.
+    try {
+      const me = await bot.telegram.getMe();
+      bot.botInfo = me;
+    } catch (error) {
+      logger.warn('telegram getMe failed; continuing without botInfo', {
+        error: error?.message || String(error)
+      });
+    }
+
     logger.info('bot ready in webhook mode (no polling)', {
       webhookUrl: config.telegramWebhookUrl,
       webhookPath: config.telegramWebhookPath,
       secretEnabled: Boolean(config.telegramWebhookSecret)
     });
   } else {
-    await bot.launch();
-    logger.info('telegram bot started (long polling)');
+    try {
+      await bot.launch();
+      logger.info('telegram bot started (long polling)');
+    } catch (error) {
+      logger.error('failed to launch telegram bot; backend will keep running', error);
+    }
   }
 }
 

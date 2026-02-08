@@ -296,3 +296,4 @@ loadDashboard().catch((error) => {
   console.error(error);
   els.userMeta.textContent = error.message || tr(currentLang, 'errLoad');
 });
+

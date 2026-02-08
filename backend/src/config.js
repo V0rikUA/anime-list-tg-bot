@@ -43,7 +43,10 @@ export const config = {
   startupMaxRetries: toInt('STARTUP_MAX_RETRIES', process.env.STARTUP_MAX_RETRIES, 20),
   startupRetryDelayMs: toInt('STARTUP_RETRY_DELAY_MS', process.env.STARTUP_RETRY_DELAY_MS, 2000),
 
-  webAppAuthMaxAgeSec: toInt('WEBAPP_AUTH_MAX_AGE_SEC', process.env.WEBAPP_AUTH_MAX_AGE_SEC, 86400)
+  webAppAuthMaxAgeSec: toInt('WEBAPP_AUTH_MAX_AGE_SEC', process.env.WEBAPP_AUTH_MAX_AGE_SEC, 86400),
+
+  // Extra diagnostic logging for Mini App issues; keep off in production.
+  debugWebAppLogs: (process.env.DEBUG_WEBAPP_LOGS || '') === '1'
 };
 
 if (config.dbClient === 'pg' && !config.databaseUrl) {

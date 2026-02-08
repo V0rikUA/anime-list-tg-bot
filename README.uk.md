@@ -59,7 +59,7 @@ npm run migrate
 Усередині docker:
 
 ```bash
-docker compose exec app npm run migrate
+docker compose exec backend npm run migrate
 ```
 
 ## Команди Telegram
@@ -147,13 +147,12 @@ cloudflared tunnel --url http://localhost:4000
 4. Застосуй webhook:
 
 ```bash
-npm run webhook:delete
-npm run webhook:set
-npm run webhook:info
+cd backend && npm run webhook:delete
+cd backend && npm run webhook:set
+cd backend && npm run webhook:info
 ```
 
 Вимоги до backend:
 - Telegram буде POST-ити JSON апдейти на `TELEGRAM_WEBHOOK_URL`.
 - Backend відповідає `200` одразу та обробляє апдейти асинхронно.
 - Якщо `TELEGRAM_WEBHOOK_SECRET` задано, backend перевіряє `X-Telegram-Bot-Api-Secret-Token`.
-
