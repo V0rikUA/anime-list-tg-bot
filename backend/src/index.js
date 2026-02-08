@@ -25,6 +25,56 @@ const LANG_LABELS = {
 
 const userState = new Map();
 
+function getSession(userId) {
+  const key = String(userId || '');
+  let session = userState.get(key);
+  if (!session || typeof session !== 'object') {
+    session = {};
+    userState.set(key, session);
+  }
+
+  if (!('screenMessageId' in session)) session.screenMessageId = null;
+  if (!('current' in session)) session.current = null;
+  if (!Array.isArray(session.stack)) session.stack = [];
+  if (!('awaiting' in session)) session.awaiting = null;
+  if (!('search' in session)) session.search = null;
+
+  return session;
+}
+
+async function tryDeleteMessage(telegram, chatId, messageId) {
+  if (!chatId || !messageId) return;
+  try {
+    await telegram.deleteMessage(chatId, messageId);
+  } catch {
+    // ignore
+  }
+}
+
+async function tryDeleteUserMessage(ctx) {
+  const chatId = ctx.chat?.id;
+  const messageId = ctx.message?.message_id;
+  if (!chatId || !messageId) return;
+  await tryDeleteMessage(ctx.telegram, chatId, messageId);
+}
+
+async function ackCbQuery(ctx, session) {
+  try {
+    await ctx.answerCbQuery();
+  } catch {
+    // ignore
+  }
+
+  // If the user pressed a button on an "old" message (not our current screen),
+  // delete it to keep the chat clean and move towards the single-screen UX.
+  const chatId = ctx.chat?.id;
+  const pressedId = ctx.callbackQuery?.message?.message_id;
+  const screenId = session?.screenMessageId;
+  if (chatId && pressedId && screenId && pressedId !== screenId) {
+    await tryDeleteMessage(ctx.telegram, chatId, pressedId);
+  }
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -168,26 +218,16 @@ function mainMenuKeyboard(ctx, lang) {
   return Markup.inlineKeyboard(rows);
 }
 
-function cancelKeyboard(lang) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback(t(lang, 'menu_cancel'), 'menu:cancel')]
-  ]);
+function navRow(lang, { back = true, home = true } = {}) {
+  const row = [];
+  if (back) row.push(Markup.button.callback(t(lang, 'menu_back'), 'nav:back'));
+  if (home) row.push(Markup.button.callback(t(lang, 'menu_main'), 'nav:home'));
+  return row;
 }
 
-async function cleanupCallbackMessage(ctx) {
-  // Best-effort: don't fail the handler if Telegram rejects deletion/edit.
-  try {
-    await ctx.answerCbQuery();
-  } catch {
-    // ignore
-  }
-
-  try {
-    // Deletes the message that contained the pressed inline button.
-    await ctx.deleteMessage();
-  } catch {
-    // ignore
-  }
+function cancelKeyboard(lang) {
+  // "Cancel" in the single-screen UX means: go to the main menu.
+  return Markup.inlineKeyboard([navRow(lang, { back: false, home: true })]);
 }
 
 function pickKeyboard(lang, count) {
@@ -201,10 +241,10 @@ function pickKeyboard(lang, count) {
   if (buttons.length > 5) rows.push(buttons.slice(5, 10));
 
   rows.push([
-    Markup.button.callback(t(lang, 'menu_new_search'), 'menu:search'),
-    Markup.button.callback(t(lang, 'menu_cancel'), 'menu:cancel')
+    Markup.button.callback(t(lang, 'menu_new_search'), 'menu:search')
   ]);
 
+  rows.push(navRow(lang));
   return Markup.inlineKeyboard(rows);
 }
 
@@ -218,11 +258,49 @@ function actionKeyboard(lang, uid) {
       Markup.button.callback(t(lang, 'act_favorite'), `act:favorite:${uid}`),
       Markup.button.callback(t(lang, 'act_recommend'), `act:recommend:${uid}`)
     ],
-    [
-      Markup.button.callback(t(lang, 'menu_back'), 'pick:back'),
-      Markup.button.callback(t(lang, 'menu_cancel'), 'menu:cancel')
-    ]
+    navRow(lang)
   ]);
+}
+
+async function renderScreen(ctx, session, text, keyboard) {
+  const chatId = ctx.chat?.id;
+  if (!chatId) {
+    // Should never happen in normal Telegram updates, but keep handlers safe.
+    return null;
+  }
+
+  const extra = {
+    disable_web_page_preview: true,
+    ...(keyboard || {})
+  };
+
+  const messageId = session?.screenMessageId;
+  if (messageId) {
+    try {
+      await ctx.telegram.editMessageText(chatId, messageId, undefined, text, extra);
+      return messageId;
+    } catch (error) {
+      // "message is not modified" isn't actionable.
+      const msg = error?.message || String(error);
+      if (msg.includes('message is not modified')) {
+        return messageId;
+      }
+      // If editing fails (e.g. message too old), fall through and send a new one.
+    }
+  }
+
+  const sent = await ctx.telegram.sendMessage(chatId, text, extra);
+  const sentId = sent?.message_id;
+
+  if (sentId) {
+    const prevId = session?.screenMessageId;
+    session.screenMessageId = sentId;
+    if (prevId && prevId !== sentId) {
+      await tryDeleteMessage(ctx.telegram, chatId, prevId);
+    }
+  }
+
+  return sentId || null;
 }
 
 async function waitForRepositoryReady(repository) {
@@ -265,375 +343,429 @@ const bot = config.telegramToken ? new Telegraf(config.telegramToken) : null;
 if (!bot) {
   logger.warn(t('en', 'bot_disabled'));
 } else {
-  bot.start(async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
+  const HOME = 'home';
+  const HELP = 'help';
+  const LANG = 'lang';
+  const SEARCH_PROMPT = 'search_prompt';
+  const SEARCH_RESULTS = 'search_results';
+  const ANIME_ACTIONS = 'anime_actions';
+  const LIST = 'list';
+  const INVITE = 'invite';
+  const APP = 'app';
+  const NOTICE = 'notice';
 
-    // First message: short description + language picker.
-    await ctx.reply(
-      `${t(lang, 'start_intro')}\n\n${t(lang, 'lang_prompt')}`,
-      Markup.inlineKeyboard([
-        LANGS.map((code) => Markup.button.callback(LANG_LABELS[code] || code, `lang:${code}`))
-      ])
-    );
-
-    await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-
-    const payload = ctx.startPayload || extractArgs(ctx.message?.text || '', 'start');
-    if (payload) {
-      const result = await repository.addFriendByToken(ctx.from, payload);
-      if (result.ok) {
-        await ctx.reply(t(lang, 'friend_added', { label: result.inviter.label }));
-      } else if (result.reason === 'self_friend') {
-        await ctx.reply(t(lang, 'cannot_add_self'));
-      } else {
-        await ctx.reply(t(lang, 'invalid_invite'));
-      }
-    }
-
-    await ctx.reply(t(lang, 'start_ready'));
-  });
-
-  bot.help(async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    await ctx.reply(helpText(lang));
-    await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-  });
-
-  bot.command('lang', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    await ctx.reply(
-      t(lang, 'lang_prompt'),
-      Markup.inlineKeyboard([
-        LANGS.map((code) => Markup.button.callback(LANG_LABELS[code] || code, `lang:${code}`))
-      ])
-    );
-  });
-
-  bot.action(/^menu:(search|watched|planned|favorites|feed|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const action = String(ctx.match?.[1] || '');
-
-    await cleanupCallbackMessage(ctx);
-
-    if (action === 'cancel') {
-      userState.delete(String(ctx.from.id));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
-    }
-
-    if (action === 'help') {
-      await ctx.reply(helpText(lang));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
-    }
-
-    if (action === 'lang') {
-      await ctx.reply(
-        t(lang, 'lang_prompt'),
-        Markup.inlineKeyboard([
-          LANGS.map((code) => Markup.button.callback(LANG_LABELS[code] || code, `lang:${code}`))
-        ])
-      );
-      return;
-    }
-
-    if (action === 'search') {
-      userState.set(String(ctx.from.id), { awaiting: 'search_query', search: null });
-      await ctx.reply(t(lang, 'prompt_search'), cancelKeyboard(lang));
-      return;
-    }
-
+  async function renderState(ctx, lang, state) {
+    const session = getSession(ctx.from.id);
     const labels = uiLabels(lang);
 
-    if (action === 'watched') {
-      const items = await repository.getWatchedWithFriendStats(String(ctx.from.id));
-      await ctx.reply(formatTrackedList(labels.watchedTitle, items, { showWatchCounters: true, emptyWord: labels.emptyWord }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+    if (!state || !state.id) {
+      session.current = { id: HOME };
+      return renderScreen(ctx, session, t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
     }
 
-    if (action === 'planned') {
-      const items = await repository.getTrackedList(String(ctx.from.id), 'planned');
-      await ctx.reply(formatTrackedList(labels.plannedTitle, items, { emptyWord: labels.emptyWord }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+    if (state.id === HOME) {
+      const note = String(state.note || '').trim();
+      const text = note ? `${note}\n\n${t(lang, 'menu_title')}` : t(lang, 'menu_title');
+      return renderScreen(ctx, session, text, mainMenuKeyboard(ctx, lang));
     }
 
-    if (action === 'favorites') {
-      const items = await repository.getTrackedList(String(ctx.from.id), 'favorite');
-      await ctx.reply(formatTrackedList(labels.favoritesTitle, items, { emptyWord: labels.emptyWord }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+    if (state.id === HELP) {
+      return renderScreen(ctx, session, helpText(lang), Markup.inlineKeyboard([navRow(lang)]));
     }
 
-    if (action === 'feed') {
-      const items = await repository.getRecommendationsFromFriends(String(ctx.from.id));
-      await ctx.reply(formatRecommendationsFromFriends(items, labels.recsFromFriends));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+    if (state.id === LANG) {
+      const rows = [
+        LANGS.map((code) => Markup.button.callback(LANG_LABELS[code] || code, `lang:${code}`)),
+        navRow(lang)
+      ];
+      return renderScreen(ctx, session, t(lang, 'lang_prompt'), Markup.inlineKeyboard(rows));
     }
 
-    if (action === 'friends') {
-      const friends = await repository.getFriends(String(ctx.from.id));
-      await ctx.reply(formatFriends(friends, labels.friends));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+    if (state.id === SEARCH_PROMPT) {
+      return renderScreen(ctx, session, t(lang, 'prompt_search'), Markup.inlineKeyboard([navRow(lang)]));
     }
 
-    if (action === 'invite') {
+    if (state.id === SEARCH_RESULTS) {
+      const results = session.search?.results || [];
+      const text = formatSearchResults(results, { empty: labels.search.empty });
+      return renderScreen(
+        ctx,
+        session,
+        `${t(lang, 'pick_result')}\n\n${text}`,
+        pickKeyboard(lang, Math.min(Array.isArray(results) ? results.length : 0, 10))
+      );
+    }
+
+    if (state.id === ANIME_ACTIONS) {
+      const uid = String(state.uid || '').trim();
+      const anime = uid ? await repository.getCatalogItem(uid) : null;
+      if (!anime) {
+        session.current = { id: HOME };
+        return renderScreen(ctx, session, t(lang, 'unknown_id'), mainMenuKeyboard(ctx, lang));
+      }
+
+      return renderScreen(
+        ctx,
+        session,
+        `${anime.title}\nID: ${anime.uid}\n\n${t(lang, 'pick_action')}`,
+        actionKeyboard(lang, anime.uid)
+      );
+    }
+
+    if (state.id === LIST) {
+      const kind = String(state.kind || '');
+
+      if (kind === 'watched') {
+        const items = await repository.getWatchedWithFriendStats(String(ctx.from.id));
+        const text = formatTrackedList(labels.watchedTitle, items, { showWatchCounters: true, emptyWord: labels.emptyWord });
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      if (kind === 'planned') {
+        const items = await repository.getTrackedList(String(ctx.from.id), 'planned');
+        const text = formatTrackedList(labels.plannedTitle, items, { emptyWord: labels.emptyWord });
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      if (kind === 'favorites') {
+        const items = await repository.getTrackedList(String(ctx.from.id), 'favorite');
+        const text = formatTrackedList(labels.favoritesTitle, items, { emptyWord: labels.emptyWord });
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      if (kind === 'feed') {
+        const items = await repository.getRecommendationsFromFriends(String(ctx.from.id));
+        const text = formatRecommendationsFromFriends(items, labels.recsFromFriends);
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      if (kind === 'friends') {
+        const friends = await repository.getFriends(String(ctx.from.id));
+        const text = formatFriends(friends, labels.friends);
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      if (kind === 'recommendations') {
+        const items = await repository.getOwnRecommendations(String(ctx.from.id));
+        const text = formatTrackedList(labels.ownRecommendationsTitle, items, { emptyWord: labels.emptyWord });
+        return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      session.current = { id: HOME };
+      return renderScreen(ctx, session, t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    }
+
+    if (state.id === INVITE) {
       const token = await repository.createInviteToken(ctx.from);
       const link = buildInviteLink(token);
       const lines = [t(lang, 'invite_token', { token }), t(lang, 'invite_howto')];
       if (link) lines.push(t(lang, 'invite_link', { link }));
-      await ctx.reply(lines.join('\n'));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([navRow(lang)]));
     }
 
-    if (action === 'app') {
+    if (state.id === APP) {
       const url = buildMiniAppUrl(ctx.from.id);
+      const rows = [];
+      let text = t(lang, 'open_miniapp');
+
       if (isHttpsUrl(url)) {
-        await ctx.reply(
-          t(lang, 'open_miniapp'),
-          Markup.inlineKeyboard([Markup.button.webApp(t(lang, 'btn_open_miniapp'), url)])
-        );
+        rows.push([Markup.button.webApp(t(lang, 'btn_open_miniapp'), url)]);
       } else {
-        await ctx.reply(t(lang, 'webapp_https_required'));
-        await ctx.reply(t(lang, 'webapp_open_link', { url }));
+        text = `${t(lang, 'webapp_https_required')}\n\n${t(lang, 'webapp_open_link', { url })}`;
       }
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      return;
+
+      rows.push(navRow(lang));
+      return renderScreen(ctx, session, text, Markup.inlineKeyboard(rows));
     }
-  });
 
-  bot.action(/^lang:(en|ru|uk)$/, async (ctx) => {
-    const selected = String(ctx.match?.[1] || 'en');
-    const out = await repository.setUserLang(String(ctx.from.id), selected);
-    const lang = out.ok ? out.lang : guessLangFromTelegram(ctx.from);
+    if (state.id === NOTICE) {
+      const text = String(state.text || '').trim() || t(lang, 'menu_title');
+      return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
+    }
 
-    await cleanupCallbackMessage(ctx);
-    await ctx.reply(`${t(lang, 'lang_updated', { lang: (LANG_LABELS[lang] || lang) })}\n\n${t(lang, 'start_ready')}`);
-    await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-  });
+    session.current = { id: HOME };
+    return renderScreen(ctx, session, t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+  }
 
-  bot.command('search', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const query = extractArgs(ctx.message.text, 'search');
+  async function goHome(ctx, lang, note = '') {
+    const session = getSession(ctx.from.id);
+    session.awaiting = null;
+    session.search = null;
+    session.stack = [];
+    session.current = { id: HOME, note };
+    return renderState(ctx, lang, session.current);
+  }
+
+  async function pushAndGo(ctx, lang, nextState) {
+    const session = getSession(ctx.from.id);
+    if (session.current) {
+      session.stack.push(session.current);
+    }
+    session.current = nextState;
+    return renderState(ctx, lang, session.current);
+  }
+
+  async function performSearch(ctx, lang, queryRaw) {
+    const session = getSession(ctx.from.id);
+    const query = String(queryRaw || '').trim();
     if (!query) {
-      await ctx.reply(t(lang, 'usage_search'));
-      return;
+      session.awaiting = 'search_query';
+      return pushAndGo(ctx, lang, { id: SEARCH_PROMPT });
     }
 
-    await ctx.reply(t(lang, 'searching', { query }));
+    session.awaiting = null;
+    await renderScreen(ctx, session, t(lang, 'searching', { query }), Markup.inlineKeyboard([navRow(lang)]));
 
     try {
       const results = await searchAnime(query, 5);
       await repository.upsertCatalog(results);
-      await ctx.reply(formatSearchResults(results.slice(0, 10), { empty: labels.search.empty }));
+      const compact = results.slice(0, 10).map((r) => ({
+        uid: r.uid,
+        title: r.title,
+        source: r.source,
+        url: r.url,
+        score: r.score,
+        episodes: r.episodes,
+        status: r.status
+      }));
+      session.search = { query, results: compact };
+      return pushAndGo(ctx, lang, { id: SEARCH_RESULTS });
     } catch (error) {
-      await ctx.reply(t(lang, 'search_failed', { error: error.message }));
+      session.search = null;
+      return pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'search_failed', { error: error.message }) });
     }
+  }
+
+  bot.start(async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const session = getSession(ctx.from.id);
+
+    // Reset navigation but keep the current screen message id (so we can edit it).
+    session.awaiting = null;
+    session.search = null;
+    session.stack = [];
+    session.current = { id: HOME, note: t(lang, 'start_intro') };
+
+    const payload = ctx.startPayload || extractArgs(ctx.message?.text || '', 'start');
+    if (payload) {
+      const result = await repository.addFriendByToken(ctx.from, payload);
+      const note = result.ok
+        ? t(lang, 'friend_added', { label: result.inviter.label })
+        : (result.reason === 'self_friend' ? t(lang, 'cannot_add_self') : t(lang, 'invalid_invite'));
+      session.current.note = `${t(lang, 'start_intro')}\n\n${note}`;
+    }
+
+    await renderState(ctx, lang, session.current);
   });
 
-  async function resolveAnimeFromUid(uid) {
-    if (!uid) {
-      return null;
-    }
+  bot.help(async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: HELP });
+  });
+
+  bot.command('lang', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: LANG });
+  });
+
+  bot.command('search', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const query = extractArgs(ctx.message?.text || '', 'search');
+    await performSearch(ctx, lang, query);
+  });
+
+  bot.command('app', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: APP });
+  });
+
+  async function resolveAnimeFromUid(uidRaw) {
+    const uid = String(uidRaw || '').trim();
+    if (!uid) return null;
     return repository.getCatalogItem(uid);
   }
 
-  bot.command('watch', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'watch');
-    const anime = await resolveAnimeFromUid(uid);
-
-    if (!anime) {
-      await ctx.reply(t(lang, 'unknown_id'));
-      return;
-    }
-
-    await repository.addToTrackedList(ctx.from, 'watched', anime);
-    const stats = await repository.getWatchStats(String(ctx.from.id), uid);
-    await ctx.reply(t(lang, 'saved_watched', {
-      title: anime.title,
-      you: stats.userWatchCount,
-      friends: stats.friendsWatchCount
-    }));
-  });
-
   bot.command('watched', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const items = await repository.getWatchedWithFriendStats(String(ctx.from.id));
-    await ctx.reply(formatTrackedList(labels.watchedTitle, items, { showWatchCounters: true, emptyWord: labels.emptyWord }));
-  });
-
-  bot.command('unwatch', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'unwatch');
-    if (!uid) {
-      await ctx.reply(t(lang, 'usage_unwatch'));
-      return;
-    }
-
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'watched', uid);
-    await ctx.reply(removed ? t(lang, 'removed_watched', { uid }) : t(lang, 'not_in_watched'));
-  });
-
-  bot.command('plan', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'plan');
-    const anime = await resolveAnimeFromUid(uid);
-
-    if (!anime) {
-      await ctx.reply(t(lang, 'unknown_id'));
-      return;
-    }
-
-    await repository.addToTrackedList(ctx.from, 'planned', anime);
-    await ctx.reply(t(lang, 'added_planned', { title: anime.title }));
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'watched' });
   });
 
   bot.command('planned', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const items = await repository.getTrackedList(String(ctx.from.id), 'planned');
-    await ctx.reply(formatTrackedList(labels.plannedTitle, items, { emptyWord: labels.emptyWord }));
-  });
-
-  bot.command('unplan', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'unplan');
-    if (!uid) {
-      await ctx.reply(t(lang, 'usage_unplan'));
-      return;
-    }
-
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'planned', uid);
-    await ctx.reply(removed ? t(lang, 'removed_planned', { uid }) : t(lang, 'not_in_planned'));
-  });
-
-  bot.command('favorite', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'favorite');
-    const anime = await resolveAnimeFromUid(uid);
-
-    if (!anime) {
-      await ctx.reply(t(lang, 'unknown_id'));
-      return;
-    }
-
-    await repository.addToTrackedList(ctx.from, 'favorite', anime);
-    await ctx.reply(t(lang, 'added_favorite', { title: anime.title }));
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'planned' });
   });
 
   bot.command('favorites', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const items = await repository.getTrackedList(String(ctx.from.id), 'favorite');
-    await ctx.reply(formatTrackedList(labels.favoritesTitle, items, { emptyWord: labels.emptyWord }));
-  });
-
-  bot.command('unfavorite', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'unfavorite');
-    if (!uid) {
-      await ctx.reply(t(lang, 'usage_unfavorite'));
-      return;
-    }
-
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'favorite', uid);
-    await ctx.reply(removed ? t(lang, 'removed_favorite', { uid }) : t(lang, 'not_in_favorites'));
-  });
-
-  bot.command('recommend', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'recommend');
-    const anime = await resolveAnimeFromUid(uid);
-
-    if (!anime) {
-      await ctx.reply(t(lang, 'unknown_id'));
-      return;
-    }
-
-    await repository.addRecommendation(ctx.from, anime);
-    await ctx.reply(t(lang, 'recommended_saved', { title: anime.title }));
-  });
-
-  bot.command('recommendations', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const items = await repository.getOwnRecommendations(String(ctx.from.id));
-    await ctx.reply(formatTrackedList(labels.ownRecommendationsTitle, items, { emptyWord: labels.emptyWord }));
-  });
-
-  bot.command('unrecommend', async (ctx) => {
-    const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'unrecommend');
-    if (!uid) {
-      await ctx.reply(t(lang, 'usage_unrecommend'));
-      return;
-    }
-
-    const removed = await repository.removeRecommendation(String(ctx.from.id), uid);
-    await ctx.reply(removed ? t(lang, 'removed_recommendation', { uid }) : t(lang, 'not_in_recommendations'));
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'favorites' });
   });
 
   bot.command('feed', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const items = await repository.getRecommendationsFromFriends(String(ctx.from.id));
-    await ctx.reply(formatRecommendationsFromFriends(items, labels.recsFromFriends));
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'feed' });
+  });
+
+  bot.command('friends', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'friends' });
   });
 
   bot.command('invite', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const token = await repository.createInviteToken(ctx.from);
-    const link = buildInviteLink(token);
-
-    const lines = [t(lang, 'invite_token', { token }), t(lang, 'invite_howto')];
-    if (link) {
-      lines.push(t(lang, 'invite_link', { link }));
-    }
-
-    await ctx.reply(lines.join('\n'));
+    await pushAndGo(ctx, lang, { id: INVITE });
   });
 
   bot.command('join', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const token = extractArgs(ctx.message.text, 'join');
+    const token = extractArgs(ctx.message?.text || '', 'join');
     if (!token) {
-      await ctx.reply(t(lang, 'usage_join'));
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_join') });
       return;
     }
 
     const result = await repository.addFriendByToken(ctx.from, token);
-    if (result.ok) {
-      await ctx.reply(t(lang, 'friend_added', { label: result.inviter.label }));
-      return;
-    }
-
-    if (result.reason === 'self_friend') {
-      await ctx.reply(t(lang, 'cannot_add_self'));
-      return;
-    }
-
-    await ctx.reply(t(lang, 'invalid_invite'));
+    const text = result.ok
+      ? t(lang, 'friend_added', { label: result.inviter.label })
+      : (result.reason === 'self_friend' ? t(lang, 'cannot_add_self') : t(lang, 'invalid_invite'));
+    await pushAndGo(ctx, lang, { id: NOTICE, text });
   });
 
-  bot.command('friends', async (ctx) => {
+  bot.command('watch', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const labels = uiLabels(lang);
-    const friends = await repository.getFriends(String(ctx.from.id));
-    await ctx.reply(formatFriends(friends, labels.friends));
+    const uid = extractArgs(ctx.message?.text || '', 'watch');
+    const anime = await resolveAnimeFromUid(uid);
+    if (!anime) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+      return;
+    }
+
+    await repository.addToTrackedList(ctx.from, 'watched', anime);
+    const stats = await repository.getWatchStats(String(ctx.from.id), anime.uid);
+    await pushAndGo(ctx, lang, {
+      id: NOTICE,
+      text: t(lang, 'saved_watched', { title: anime.title, you: stats.userWatchCount, friends: stats.friendsWatchCount })
+    });
+  });
+
+  bot.command('unwatch', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'unwatch');
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unwatch') });
+      return;
+    }
+
+    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'watched', uid);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_watched', { uid }) : t(lang, 'not_in_watched') });
+  });
+
+  bot.command('plan', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'plan');
+    const anime = await resolveAnimeFromUid(uid);
+    if (!anime) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+      return;
+    }
+
+    await repository.addToTrackedList(ctx.from, 'planned', anime);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_planned', { title: anime.title }) });
+  });
+
+  bot.command('unplan', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'unplan');
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unplan') });
+      return;
+    }
+
+    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'planned', uid);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_planned', { uid }) : t(lang, 'not_in_planned') });
+  });
+
+  bot.command('favorite', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'favorite');
+    const anime = await resolveAnimeFromUid(uid);
+    if (!anime) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+      return;
+    }
+
+    await repository.addToTrackedList(ctx.from, 'favorite', anime);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_favorite', { title: anime.title }) });
+  });
+
+  bot.command('unfavorite', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'unfavorite');
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unfavorite') });
+      return;
+    }
+
+    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'favorite', uid);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_favorite', { uid }) : t(lang, 'not_in_favorites') });
+  });
+
+  bot.command('recommend', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'recommend');
+    const anime = await resolveAnimeFromUid(uid);
+    if (!anime) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+      return;
+    }
+
+    await repository.addRecommendation(ctx.from, anime);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'recommended_saved', { title: anime.title }) });
+  });
+
+  bot.command('recommendations', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'recommendations' });
+  });
+
+  bot.command('unrecommend', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = extractArgs(ctx.message?.text || '', 'unrecommend');
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unrecommend') });
+      return;
+    }
+
+    const removed = await repository.removeRecommendation(String(ctx.from.id), uid);
+    await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_recommendation', { uid }) : t(lang, 'not_in_recommendations') });
   });
 
   bot.command('stats', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    const uid = extractArgs(ctx.message.text, 'stats');
+    const uid = extractArgs(ctx.message?.text || '', 'stats');
     if (!uid) {
-      await ctx.reply(t(lang, 'usage_stats'));
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_stats') });
       return;
     }
 
@@ -641,153 +773,206 @@ if (!bot) {
     const stats = await repository.getWatchStats(String(ctx.from.id), uid);
     const label = anime?.title || uid;
 
-    await ctx.reply(t(lang, 'stats_line', {
-      label,
-      you: stats.userWatchCount,
-      friends: stats.friendsWatchCount
-    }));
+    await pushAndGo(ctx, lang, {
+      id: NOTICE,
+      text: t(lang, 'stats_line', { label, you: stats.userWatchCount, friends: stats.friendsWatchCount })
+    });
   });
 
   bot.command('dashboard', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
-    await ctx.reply(t(lang, 'dashboard_api', { url: `${config.apiBaseUrl}/api/dashboard/${ctx.from.id}` }));
+    await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'dashboard_api', { url: `${config.apiBaseUrl}/api/dashboard/${ctx.from.id}` }) });
   });
 
-  bot.command('app', async (ctx) => {
+  bot.action('nav:home', async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
     const lang = await ensureUserAndLang(ctx, repository);
-    const webAppUrl = buildMiniAppUrl(ctx.from.id);
-    if (!isHttpsUrl(webAppUrl)) {
-      await ctx.reply(t(lang, 'webapp_https_required'));
-      await ctx.reply(t(lang, 'webapp_open_link', { url: webAppUrl }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    await goHome(ctx, lang);
+  });
+
+  bot.action('nav:back', async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+
+    const prev = session.stack.pop();
+    if (!prev) {
+      await goHome(ctx, lang);
       return;
     }
 
-    await ctx.reply(t(lang, 'open_miniapp'), Markup.inlineKeyboard([Markup.button.webApp(t(lang, 'btn_open_miniapp'), webAppUrl)]));
+    session.current = prev;
+    await renderState(ctx, lang, session.current);
+  });
+
+  bot.action(/^menu:(search|watched|planned|favorites|feed|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const action = String(ctx.match?.[1] || '');
+
+    if (action === 'cancel') {
+      await goHome(ctx, lang);
+      return;
+    }
+
+    if (action === 'help') {
+      await pushAndGo(ctx, lang, { id: HELP });
+      return;
+    }
+
+    if (action === 'lang') {
+      await pushAndGo(ctx, lang, { id: LANG });
+      return;
+    }
+
+    if (action === 'search') {
+      session.awaiting = 'search_query';
+      await pushAndGo(ctx, lang, { id: SEARCH_PROMPT });
+      return;
+    }
+
+    if (action === 'watched') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'watched' });
+      return;
+    }
+
+    if (action === 'planned') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'planned' });
+      return;
+    }
+
+    if (action === 'favorites') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'favorites' });
+      return;
+    }
+
+    if (action === 'feed') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'feed' });
+      return;
+    }
+
+    if (action === 'friends') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'friends' });
+      return;
+    }
+
+    if (action === 'invite') {
+      await pushAndGo(ctx, lang, { id: INVITE });
+      return;
+    }
+
+    if (action === 'app') {
+      await pushAndGo(ctx, lang, { id: APP });
+    }
+  });
+
+  bot.action(/^lang:(en|ru|uk)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const selected = String(ctx.match?.[1] || 'en');
+    const out = await repository.setUserLang(String(ctx.from.id), selected);
+    const lang = out.ok ? out.lang : guessLangFromTelegram(ctx.from);
+    await goHome(ctx, lang, t(lang, 'lang_updated', { lang: (LANG_LABELS[lang] || lang) }));
   });
 
   bot.action(/^pick:(\d+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
     const lang = await ensureUserAndLang(ctx, repository);
     const idx = Number(ctx.match?.[1] || -1);
-    const state = userState.get(String(ctx.from.id));
-    const results = state?.search?.results;
-
-    await cleanupCallbackMessage(ctx);
+    const results = session.search?.results;
 
     if (!Array.isArray(results) || idx < 0 || idx >= results.length) {
-      await ctx.reply(t(lang, 'pick_result'), cancelKeyboard(lang));
+      await pushAndGo(ctx, lang, { id: SEARCH_PROMPT });
       return;
     }
 
     const picked = results[idx];
-    await ctx.reply(
-      `${picked.title}\nID: ${picked.uid}\n\n${t(lang, 'pick_action')}`,
-      actionKeyboard(lang, picked.uid)
-    );
+    await pushAndGo(ctx, lang, { id: ANIME_ACTIONS, uid: picked.uid });
   });
 
+  // Backwards compatibility for old messages that still have pick:back callback.
   bot.action(/^pick:back$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
     const lang = await ensureUserAndLang(ctx, repository);
-    const state = userState.get(String(ctx.from.id));
-    const results = state?.search?.results;
-
-    await cleanupCallbackMessage(ctx);
-
-    if (!Array.isArray(results) || results.length === 0) {
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    if (session.search?.results?.length) {
+      await pushAndGo(ctx, lang, { id: SEARCH_RESULTS });
       return;
     }
-
-    const labels = uiLabels(lang);
-    const text = formatSearchResults(results, { empty: labels.search.empty });
-    await ctx.reply(`${t(lang, 'pick_result')}\n\n${text}`, pickKeyboard(lang, Math.min(results.length, 10)));
+    await goHome(ctx, lang);
   });
 
   bot.action(/^act:(watch|plan|favorite|recommend):(.+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
     const lang = await ensureUserAndLang(ctx, repository);
     const kind = String(ctx.match?.[1] || '');
     const uid = String(ctx.match?.[2] || '').trim();
 
-    await cleanupCallbackMessage(ctx);
-
     const anime = await repository.getCatalogItem(uid);
     if (!anime) {
-      await ctx.reply(t(lang, 'unknown_id'));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
     }
 
     if (kind === 'watch') {
       await repository.addToTrackedList(ctx.from, 'watched', anime);
       const stats = await repository.getWatchStats(String(ctx.from.id), uid);
-      await ctx.reply(t(lang, 'saved_watched', { title: anime.title, you: stats.userWatchCount, friends: stats.friendsWatchCount }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      await pushAndGo(ctx, lang, {
+        id: NOTICE,
+        text: t(lang, 'saved_watched', { title: anime.title, you: stats.userWatchCount, friends: stats.friendsWatchCount })
+      });
       return;
     }
 
     if (kind === 'plan') {
       await repository.addToTrackedList(ctx.from, 'planned', anime);
-      await ctx.reply(t(lang, 'added_planned', { title: anime.title }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_planned', { title: anime.title }) });
       return;
     }
 
     if (kind === 'favorite') {
       await repository.addToTrackedList(ctx.from, 'favorite', anime);
-      await ctx.reply(t(lang, 'added_favorite', { title: anime.title }));
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_favorite', { title: anime.title }) });
       return;
     }
 
     await repository.addRecommendation(ctx.from, anime);
-    await ctx.reply(t(lang, 'recommended_saved', { title: anime.title }));
-    await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'recommended_saved', { title: anime.title }) });
   });
 
   bot.on('text', async (ctx) => {
-    if (ctx.message.text?.startsWith('/')) {
-      return;
-    }
+    if (ctx.message?.text?.startsWith('/')) return;
 
     const lang = await ensureUserAndLang(ctx, repository);
-    const state = userState.get(String(ctx.from.id));
+    const session = getSession(ctx.from.id);
+    const text = String(ctx.message?.text || '');
 
-    if (state?.awaiting === 'search_query') {
-      const query = String(ctx.message.text || '').trim();
-      if (!query) {
-        await ctx.reply(t(lang, 'prompt_search'), cancelKeyboard(lang));
-        return;
-      }
+    // Keep the chat clean: remove the user's query message best-effort.
+    await tryDeleteUserMessage(ctx);
 
-      const labels = uiLabels(lang);
-      await ctx.reply(t(lang, 'searching', { query }));
-
-      try {
-        const results = await searchAnime(query, 5);
-        await repository.upsertCatalog(results);
-        const compact = results.slice(0, 10).map((r) => ({ uid: r.uid, title: r.title, source: r.source, url: r.url, score: r.score, episodes: r.episodes, status: r.status }));
-
-        userState.set(String(ctx.from.id), { awaiting: null, search: { query, results: compact } });
-
-        const text = formatSearchResults(compact, { empty: labels.search.empty });
-        await ctx.reply(`${t(lang, 'pick_result')}\n\n${text}`, pickKeyboard(lang, Math.min(compact.length, 10)));
-      } catch (error) {
-        await ctx.reply(t(lang, 'search_failed', { error: error.message }));
-        await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
-      }
-
+    if (session.awaiting === 'search_query') {
+      await performSearch(ctx, lang, text);
       return;
     }
 
-    await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    // Treat any free-form text as a search query.
+    await performSearch(ctx, lang, text);
   });
 
   bot.on('message', async (ctx) => {
-    if (!ctx.message.text?.startsWith('/')) {
-      // text handler above shows the menu; keep this as a fallback for non-text messages.
-      const lang = await ensureUserAndLang(ctx, repository);
-      await ctx.reply(t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
+    if (typeof ctx.message?.text === 'string') {
+      // Text is handled by bot.on('text') and bot.command handlers.
+      return;
     }
+
+    // Fallback for non-text updates: keep a consistent single-screen menu.
+    const lang = await ensureUserAndLang(ctx, repository);
+    await goHome(ctx, lang);
   });
 
   bot.catch(async (error, ctx) => {

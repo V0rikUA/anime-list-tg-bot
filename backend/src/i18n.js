@@ -77,6 +77,7 @@ const DICT = {
     menu_help: 'Help',
     menu_cancel: 'Cancel',
     menu_back: 'Back',
+    menu_main: 'Main menu',
     menu_new_search: 'New search',
 
     prompt_search: 'Send anime title to search.',
@@ -158,6 +159,7 @@ const DICT = {
     menu_help: 'Помощь',
     menu_cancel: 'Отмена',
     menu_back: 'Назад',
+    menu_main: 'Главное меню',
     menu_new_search: 'Новый поиск',
 
     prompt_search: 'Напиши название аниме для поиска.',
@@ -239,6 +241,7 @@ const DICT = {
     menu_help: 'Довідка',
     menu_cancel: 'Скасувати',
     menu_back: 'Назад',
+    menu_main: 'Головне меню',
     menu_new_search: 'Новий пошук',
 
     prompt_search: 'Надішли назву аніме для пошуку.',
