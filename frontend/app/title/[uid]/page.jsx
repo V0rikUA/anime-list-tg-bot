@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import { setLanguage, setTheme } from '../../../lib/store';
@@ -32,6 +32,10 @@ export default function TitlePage() {
     sources: [],
     videos: []
   });
+
+  const [playerState, setPlayerState] = useState({ open: false, url: '', label: '' });
+  const [playerError, setPlayerError] = useState('');
+  const videoRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +91,116 @@ export default function TitlePage() {
       // ignore
     }
     window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  const canInlinePlay = useMemo(() => {
+    return (video) => {
+      const url = String(video?.url || '').trim();
+      if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return false;
+      const headers = video?.headers && typeof video.headers === 'object' ? video.headers : null;
+      if (headers && Object.keys(headers).length) return false;
+
+      const type = String(video?.type || '').toLowerCase();
+      if (type.includes('m3u8') || type.includes('hls')) return true;
+      if (type.includes('mp4')) return true;
+      if (url.toLowerCase().includes('.m3u8')) return true;
+      if (url.toLowerCase().includes('.mp4')) return true;
+      return false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!playerState.open) return;
+    if (!playerState.url) return;
+
+    let cancelled = false;
+    let hls = null;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    setPlayerError('');
+
+    // Reset any previous state.
+    try {
+      video.pause();
+    } catch {
+      // ignore
+    }
+    video.removeAttribute('src');
+    try {
+      video.load();
+    } catch {
+      // ignore
+    }
+
+    const url = String(playerState.url);
+    const isHls = url.toLowerCase().includes('.m3u8');
+
+    const onVideoError = () => {
+      if (cancelled) return;
+      setPlayerError(t('title.watchPlayerFailed'));
+    };
+
+    video.addEventListener('error', onVideoError);
+
+    (async () => {
+      try {
+        if (isHls) {
+          const canNative = !!video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl');
+          if (canNative) {
+            video.src = url;
+          } else {
+            const mod = await import('hls.js');
+            const Hls = mod.default;
+            if (!Hls?.isSupported?.()) {
+              throw new Error('hls not supported');
+            }
+            hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: false
+            });
+            hls.on(Hls.Events.ERROR, () => {
+              if (cancelled) return;
+              setPlayerError(t('title.watchPlayerFailed'));
+            });
+            hls.loadSource(url);
+            hls.attachMedia(video);
+          }
+        } else {
+          video.src = url;
+        }
+
+        // Autoplay often works only after a user gesture; our "Play" click counts as one.
+        await video.play().catch(() => null);
+      } catch (e) {
+        if (cancelled) return;
+        console.error(e);
+        setPlayerError(t('title.watchPlayerFailed'));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener('error', onVideoError);
+      try {
+        if (hls?.destroy) hls.destroy();
+      } catch {
+        // ignore
+      }
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      video.removeAttribute('src');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState.open, playerState.url, lang]);
+
+  function closePlayer() {
+    setPlayerState({ open: false, url: '', label: '' });
+    setPlayerError('');
   }
 
   async function watchFindTitles() {
@@ -326,16 +440,27 @@ export default function TitlePage() {
                 <>
                   <p className="meta">{t('title.watchPickQuality')}</p>
                   {watchState.videos.map((v, idx) => (
-                    <button
-                      className="btn"
-                      key={`${idx}:${v.url}`}
-                      type="button"
-                      onClick={() => {
-                        openLink(v.url);
-                      }}
-                    >
-                      {t('title.watchOpen')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
-                    </button>
+                    <div className="row" key={`${idx}:${v.url}`}>
+                      {canInlinePlay(v) ? (
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => {
+                            setPlayerState({
+                              open: true,
+                              url: String(v.url || ''),
+                              label: `${v.quality ? `${v.quality}p` : ''}${v.type ? ` ${v.type}` : ''}`.trim()
+                            });
+                          }}
+                        >
+                          {t('title.watchPlay')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
+                        </button>
+                      ) : null}
+
+                      <button className="select" type="button" onClick={() => openLink(v.url)}>
+                        {t('title.watchOpen')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
+                      </button>
+                    </div>
                   ))}
                   {watchState.videos.some((v) => v.headers && Object.keys(v.headers).length) ? (
                     <p className="meta">{t('title.watchBlocked')}</p>
@@ -344,6 +469,41 @@ export default function TitlePage() {
               ) : null}
             </div>
           </section>
+
+          {playerState.open ? (
+            <div
+              className="modal-backdrop"
+              role="dialog"
+              aria-modal="true"
+              aria-label={t('title.watchPlayerTitle')}
+              onClick={(e) => {
+                if (e.target === e.currentTarget) closePlayer();
+              }}
+            >
+              <div className="modal">
+                <div className="modal-head">
+                  <p className="modal-title">
+                    {t('title.watchPlayerTitle')}
+                    {playerState.label ? ` · ${playerState.label}` : ''}
+                  </p>
+                  <button className="select select--sm" type="button" onClick={closePlayer}>
+                    {t('title.close')}
+                  </button>
+                </div>
+                <div className="modal-body">
+                  <video ref={videoRef} className="player" controls playsInline />
+                  {playerError ? (
+                    <>
+                      <p className="meta">{playerError}</p>
+                      <button className="btn" type="button" onClick={() => openLink(playerState.url)}>
+                        {t('title.watchOpen')}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </>
       ) : null}
     </main>
