@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { Provider } from 'react-redux';
-import { hydrate, makeStore } from './store';
+import { hydrate, hydrateTheme, makeStore } from './store';
+import ThemeSync from './ThemeSync';
 
 export default function Providers({ children }) {
   const storeRef = useRef(null);
@@ -12,8 +13,13 @@ export default function Providers({ children }) {
 
   useEffect(() => {
     storeRef.current.dispatch(hydrate());
+    storeRef.current.dispatch(hydrateTheme());
   }, []);
 
-  return <Provider store={storeRef.current}>{children}</Provider>;
+  return (
+    <Provider store={storeRef.current}>
+      <ThemeSync />
+      {children}
+    </Provider>
+  );
 }
-

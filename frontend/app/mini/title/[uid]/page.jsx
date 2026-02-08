@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
-import { setLanguage } from '../../../../lib/store';
+import { setLanguage, setTheme } from '../../../../lib/store';
 import { translate } from '../../../../lib/i18n';
 import { useTelegramSafeArea } from '../../../../lib/hooks/useTelegramSafeArea';
 
@@ -16,6 +16,7 @@ export default function TitlePage() {
 
   const dispatch = useDispatch();
   const lang = useSelector((s) => s.language.current);
+  const theme = useSelector((s) => s.theme?.current || 'auto');
   const t = (key, params) => translate(lang, key, params);
 
   const [state, setState] = useState({ loading: true, error: '', data: null });
@@ -54,18 +55,25 @@ export default function TitlePage() {
         <button className="btn" type="button" onClick={() => router.push('/mini')}>
           {t('title.back')}
         </button>
-        <select
-          className="select"
-          value={lang}
-          onChange={(e) => {
-            dispatch(setLanguage(e.target.value));
-          }}
-          aria-label={t('common.language')}
-        >
-          <option value="en">EN</option>
-          <option value="ru">RU</option>
-          <option value="uk">UK</option>
-        </select>
+        <div className="actions">
+          <select className="select select--sm" value={theme} onChange={(e) => dispatch(setTheme(e.target.value))} aria-label={t('common.theme')}>
+            <option value="auto">{t('common.themeAuto')}</option>
+            <option value="dark">{t('common.themeDark')}</option>
+            <option value="light">{t('common.themeLight')}</option>
+          </select>
+          <select
+            className="select select--sm"
+            value={lang}
+            onChange={(e) => {
+              dispatch(setLanguage(e.target.value));
+            }}
+            aria-label={t('common.language')}
+          >
+            <option value="en">EN</option>
+            <option value="ru">RU</option>
+            <option value="uk">UK</option>
+          </select>
+        </div>
       </header>
 
       {state.loading ? (

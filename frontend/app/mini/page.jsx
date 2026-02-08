@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { setLanguage } from '../../lib/store';
+import { setLanguage, setTheme } from '../../lib/store';
 import { translate } from '../../lib/i18n';
 import { useTelegramSafeArea } from '../../lib/hooks/useTelegramSafeArea';
 
@@ -39,6 +39,7 @@ export default function MiniAppDashboard() {
 
   const dispatch = useDispatch();
   const lang = useSelector((s) => s.language.current);
+  const theme = useSelector((s) => s.theme?.current || 'auto');
   const t = (key, params) => translate(lang, key, params);
 
   const [metaText, setMetaText] = useState(t('dashboard.loadingProfile'));
@@ -100,6 +101,10 @@ export default function MiniAppDashboard() {
 
   function onLangChange(e) {
     dispatch(setLanguage(e.target.value));
+  }
+
+  function onThemeChange(e) {
+    dispatch(setTheme(e.target.value));
   }
 
   function renderAnimeList(list, withWatchStats) {
@@ -186,7 +191,12 @@ export default function MiniAppDashboard() {
           <p className="meta">{metaText}</p>
         </div>
         <div className="actions">
-          <select className="select" value={lang} onChange={onLangChange} aria-label={t('common.language')}>
+          <select className="select select--sm" value={theme} onChange={onThemeChange} aria-label={t('common.theme')}>
+            <option value="auto">{t('common.themeAuto')}</option>
+            <option value="dark">{t('common.themeDark')}</option>
+            <option value="light">{t('common.themeLight')}</option>
+          </select>
+          <select className="select select--sm" value={lang} onChange={onLangChange} aria-label={t('common.language')}>
             <option value="en">EN</option>
             <option value="ru">RU</option>
             <option value="uk">UK</option>

@@ -1,6 +1,10 @@
 export const en = {
   common: {
     language: 'Language',
+    theme: 'Theme',
+    themeAuto: 'Auto',
+    themeLight: 'Light',
+    themeDark: 'Dark',
     na: 'N/A'
   },
   dashboard: {

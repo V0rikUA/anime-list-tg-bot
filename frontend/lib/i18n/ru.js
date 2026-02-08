@@ -1,6 +1,10 @@
 export const ru = {
   common: {
     language: 'Язык',
+    theme: 'Тема',
+    themeAuto: 'Авто',
+    themeLight: 'Светлая',
+    themeDark: 'Темная',
     na: 'н/д'
   },
   dashboard: {
