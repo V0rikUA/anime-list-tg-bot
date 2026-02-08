@@ -1,6 +1,22 @@
 const JIKAN_URL = 'https://api.jikan.moe/v4/anime';
 const ANILIST_URL = 'https://graphql.anilist.co';
 
+/**
+ * Normalized anime shape used across the app.
+ * @typedef {Object} AnimeSearchResult
+ * @property {string} uid
+ * @property {'jikan'|'anilist'} source
+ * @property {string|number} externalId
+ * @property {string} title
+ * @property {number|null} episodes
+ * @property {number|null} score
+ * @property {string|null} status
+ * @property {string|null} url
+ * @property {string|null} imageSmall
+ * @property {string|null} imageLarge
+ * @property {string|null} synopsisEn
+ */
+
 function scoreToNumber(score) {
   if (score === null || score === undefined) {
     return null;
@@ -9,6 +25,10 @@ function scoreToNumber(score) {
   return Number.isFinite(num) ? num : null;
 }
 
+/**
+ * @param {any} item
+ * @returns {AnimeSearchResult}
+ */
 function normalize(item) {
   return {
     uid: item.uid,
@@ -18,10 +38,18 @@ function normalize(item) {
     episodes: item.episodes,
     score: item.score,
     status: item.status,
-    url: item.url
+    url: item.url,
+    imageSmall: item.imageSmall ?? null,
+    imageLarge: item.imageLarge ?? null,
+    synopsisEn: item.synopsisEn ?? null
   };
 }
 
+/**
+ * @param {string} query
+ * @param {number} limit
+ * @returns {Promise<AnimeSearchResult[]>}
+ */
 async function searchJikan(query, limit) {
   const url = new URL(JIKAN_URL);
   url.searchParams.set('q', query);
@@ -44,10 +72,18 @@ async function searchJikan(query, limit) {
     episodes: anime.episodes,
     score: scoreToNumber(anime.score),
     status: anime.status,
-    url: anime.url
+    url: anime.url,
+    imageSmall: anime?.images?.jpg?.image_url || null,
+    imageLarge: anime?.images?.jpg?.large_image_url || anime?.images?.jpg?.image_url || null,
+    synopsisEn: anime?.synopsis || null
   }));
 }
 
+/**
+ * @param {string} query
+ * @param {number} limit
+ * @returns {Promise<AnimeSearchResult[]>}
+ */
 async function searchAniList(query, limit) {
   const graphQuery = `
     query ($search: String, $perPage: Int) {
@@ -58,8 +94,13 @@ async function searchAniList(query, limit) {
             romaji
             english
           }
+          coverImage {
+            medium
+            large
+          }
           episodes
           averageScore
+          description(asHtml: false)
           status
           siteUrl
         }
@@ -92,10 +133,19 @@ async function searchAniList(query, limit) {
     episodes: anime.episodes,
     score: scoreToNumber(anime.averageScore ? anime.averageScore / 10 : null),
     status: anime.status,
-    url: anime.siteUrl
+    url: anime.siteUrl,
+    imageSmall: anime?.coverImage?.medium || null,
+    imageLarge: anime?.coverImage?.large || anime?.coverImage?.medium || null,
+    synopsisEn: anime?.description || null
   }));
 }
 
+/**
+ * Search anime in multiple sources and return a combined list (sorted by score).
+ * @param {string} query
+ * @param {number=} limit
+ * @returns {Promise<AnimeSearchResult[]>}
+ */
 export async function searchAnime(query, limit = 5) {
   const tasks = [
     searchJikan(query, limit).catch(() => []),

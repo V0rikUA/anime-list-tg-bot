@@ -18,6 +18,26 @@ function normalizeStoredLang(raw) {
   return SUPPORTED_LANGS.has(lang) ? lang : 'en';
 }
 
+/**
+ * @typedef {Object} AnimeRow
+ * @property {string} uid
+ * @property {string|null} source
+ * @property {string|null} externalId
+ * @property {string} title
+ * @property {number|null} episodes
+ * @property {number|null} score
+ * @property {string|null} status
+ * @property {string|null} url
+ * @property {string|null} imageSmall
+ * @property {string|null} imageLarge
+ * @property {string|null} synopsisEn
+ */
+
+/**
+ * Normalizes anime payload before persisting into DB.
+ * @param {any} item
+ * @returns {AnimeRow}
+ */
 function normalizeAnime(item) {
   return {
     uid: String(item.uid),
@@ -27,10 +47,18 @@ function normalizeAnime(item) {
     episodes: item.episodes ?? null,
     score: item.score ?? null,
     status: item.status ?? null,
-    url: item.url ?? null
+    url: item.url ?? null,
+    imageSmall: item.imageSmall ?? null,
+    imageLarge: item.imageLarge ?? null,
+    synopsisEn: item.synopsisEn ?? null
   };
 }
 
+/**
+ * Maps a DB row into API shape.
+ * @param {any} row
+ * @returns {AnimeRow & {addedAt: string|null, watchCount: number}}
+ */
 function mapAnimeRow(row) {
   return {
     uid: row.uid,
@@ -41,6 +69,9 @@ function mapAnimeRow(row) {
     score: row.score,
     status: row.status,
     url: row.url,
+    imageSmall: row.image_small ?? null,
+    imageLarge: row.image_large ?? null,
+    synopsisEn: row.synopsis_en ?? null,
     addedAt: row.added_at || null,
     watchCount: row.watch_count ?? 0
   };
@@ -264,6 +295,9 @@ export class AnimeRepository {
         score: normalized.score,
         status: normalized.status,
         url: normalized.url,
+        image_small: normalized.imageSmall,
+        image_large: normalized.imageLarge,
+        synopsis_en: normalized.synopsisEn,
         updated_at: this.db.fn.now()
       };
     });
@@ -276,6 +310,9 @@ export class AnimeRepository {
       score: this.db.raw('excluded.score'),
       status: this.db.raw('excluded.status'),
       url: this.db.raw('excluded.url'),
+      image_small: this.db.raw('excluded.image_small'),
+      image_large: this.db.raw('excluded.image_large'),
+      synopsis_en: this.db.raw('excluded.synopsis_en'),
       updated_at: this.db.fn.now()
     });
   }
@@ -377,6 +414,9 @@ export class AnimeRepository {
         'a.score',
         'a.status',
         'a.url',
+        'a.image_small',
+        'a.image_large',
+        'a.synopsis_en',
         'l.added_at',
         'l.watch_count'
       );
@@ -633,6 +673,9 @@ export class AnimeRepository {
       score: anime.score,
       status: anime.status,
       url: anime.url,
+      image_small: anime.imageSmall,
+      image_large: anime.imageLarge,
+      synopsis_en: anime.synopsisEn,
       updated_at: this.db.fn.now()
     }).onConflict('uid').merge({
       source: this.db.raw('excluded.source'),
@@ -642,6 +685,9 @@ export class AnimeRepository {
       score: this.db.raw('excluded.score'),
       status: this.db.raw('excluded.status'),
       url: this.db.raw('excluded.url'),
+      image_small: this.db.raw('excluded.image_small'),
+      image_large: this.db.raw('excluded.image_large'),
+      synopsis_en: this.db.raw('excluded.synopsis_en'),
       updated_at: this.db.fn.now()
     });
   }
