@@ -22,6 +22,8 @@ cp .env.example .env
 Fill `.env` values:
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_BOT_USERNAME` (for invite links)
+- `WATCH_API_URL` (internal `watch-api` service URL, e.g. `http://watch-api:8000`)
+- `WATCH_SOURCES_ALLOWLIST` (optional, comma-separated `anicli_api` sources)
 - `DB_CLIENT` (`pg` for docker compose, `sqlite3` for local sqlite)
 - `DATABASE_URL` (required for `pg`)
 - `WEB_APP_URL` (public URL for mini app, usually `https://your-domain/`)
@@ -107,6 +109,10 @@ docker compose exec backend npm run migrate
 - `GET /` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (validate Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (secure dashboard by initData; used by Mini App)
+- `POST /api/webapp/watch/search` (watch links: search)
+- `POST /api/webapp/watch/episodes` (watch links: episodes)
+- `POST /api/webapp/watch/sources` (watch links: sources for episode)
+- `POST /api/webapp/watch/videos` (watch links: videos/qualities)
 
 Example:
 
