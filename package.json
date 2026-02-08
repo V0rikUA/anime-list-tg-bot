@@ -1,0 +1,32 @@
+{
+  "name": "anime-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for anime tracking and recommendations",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node --check src/index.js",
+    "migrate": "node src/scripts/migrate.js",
+    "webhook:set": "node src/scripts/webhook.js set",
+    "webhook:info": "node src/scripts/webhook.js info",
+    "webhook:delete": "node src/scripts/webhook.js delete"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.0.0",
+    "dotenv": "^16.4.5",
+    "encoding": "^0.1.13",
+    "fastify": "^5.7.4",
+    "iconv-lite": "^0.7.2",
+    "knex": "^3.1.0",
+    "pg": "^8.18.0",
+    "safer-buffer": "^2.1.2",
+    "sqlite3": "^5.1.7",
+    "telegraf": "^4.16.3"
+  }
+}
