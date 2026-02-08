@@ -1,0 +1,49 @@
+;services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: anime_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-animebot}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-animebot}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: anime_backend_dev
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "4000:4000"
+    command: ["sh", "./scripts/docker-start.sh"]
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      DB_CLIENT: pg
+      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
+      API_PORT: 4000
+      API_BASE_URL: ${API_BASE_URL:-http://localhost:4000}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:4000/app}
+      TELEGRAM_WEBHOOK_URL: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      TELEGRAM_WEBHOOK_PATH: /webhook
+      APP_START_CMD: "npm run dev"
+    volumes:
+      - .:/app:delegated
+      - /app/node_modules
+
+volumes:
+  postgres_data_dev:

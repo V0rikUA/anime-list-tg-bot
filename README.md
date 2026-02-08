@@ -38,6 +38,14 @@ docker compose up --build -d
 
 Backend: `http://localhost:4000`
 
+## Dev (Docker + Postgres + Hot Reload)
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+Dev compose runs `scripts/docker-start.sh` (migrations + optional webhook setup) and then starts `npm run dev`.
+
 ## Run (without Docker)
 
 Use sqlite fallback:
