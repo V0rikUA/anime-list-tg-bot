@@ -322,6 +322,19 @@ export async function startApiServer({
           autoPick = match;
         }
       }
+      // If the exact match isn't on the current page, try a larger first page to find it.
+      if (!autoPick && map?.watchUrl) {
+        try {
+          const resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
+          const resolveItems = Array.isArray(resolveOut?.items) ? resolveOut.items : [];
+          const match = resolveItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
+          if (match?.animeRef) {
+            autoPick = match;
+          }
+        } catch {
+          // ignore resolve failure
+        }
+      }
 
       // If no mapping exists yet and the search is unambiguous, bind automatically.
       const isUnambiguous = total !== null ? total === 1 : items.length === 1;

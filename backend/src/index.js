@@ -513,8 +513,8 @@ if (!bot) {
 	      const pages = Number(session.watch?.titlePages) || 1;
 	      const pager = [];
 	      if (pages > 1) {
-	        const prev = page > 1 ? Markup.button.callback('<', `watch:titles:page:${page - 1}`) : Markup.button.callback(' ', 'noop');
-	        const next = page < pages ? Markup.button.callback('>', `watch:titles:page:${page + 1}`) : Markup.button.callback(' ', 'noop');
+	        const prev = page > 1 ? Markup.button.callback('<', `watch:titles:page:${page - 1}`) : Markup.button.callback('-', 'noop');
+	        const next = page < pages ? Markup.button.callback('>', `watch:titles:page:${page + 1}`) : Markup.button.callback('-', 'noop');
 	        pager.push(prev, Markup.button.callback(`${page}/${pages}`, 'noop'), next);
 	      }
 
@@ -1243,6 +1243,11 @@ if (!bot) {
     } catch (error) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
     }
+  });
+
+  bot.action('noop', async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
   });
 
   bot.action(/^watch:ep:(.+)$/, async (ctx) => {
