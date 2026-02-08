@@ -44,6 +44,16 @@ export const uk = {
     source: 'Джерело',
     open: 'Відкрити посилання',
     noSynopsis: 'Немає опису.',
-    errLoad: 'Не вдалося завантажити'
+    errLoad: 'Не вдалося завантажити',
+    watchTitle: 'Дивитися',
+    watchHint: 'Епізоди та джерела. Деякі провайдери можуть бути недоступні за регіоном.',
+    watchFind: 'Знайти епізоди',
+    watchPickTitle: 'Обери тайтл',
+    watchPickEpisode: 'Обери епізод',
+    watchPickSource: 'Обери джерело',
+    watchPickQuality: 'Обери якість',
+    watchOpen: 'Відкрити',
+    watchBlocked: 'Може вимагати спец. заголовки; відкрий у браузері.',
+    watchErr: 'Не вдалося завантажити посилання'
   }
 };

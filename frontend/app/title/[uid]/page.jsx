@@ -20,6 +20,18 @@ export default function TitlePage() {
   const t = (key, params) => translate(lang, key, params);
 
   const [state, setState] = useState({ loading: true, error: '', data: null });
+  const [watchState, setWatchState] = useState({
+    loading: false,
+    error: '',
+    step: 'idle', // idle | titles | episodes | sources | videos
+    animeRef: '',
+    episodeNum: '',
+    sourceRef: '',
+    titles: [],
+    episodes: [],
+    sources: [],
+    videos: []
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -48,6 +60,142 @@ export default function TitlePage() {
   }, [uid, lang]);
 
   const d = state.data;
+
+  function getInitData() {
+    const tg = window.Telegram?.WebApp;
+    return typeof tg?.initData === 'string' ? tg.initData.trim() : '';
+  }
+
+  function openLink(url) {
+    const tg = window.Telegram?.WebApp;
+    try {
+      if (typeof tg?.openLink === 'function') {
+        tg.openLink(url);
+        return;
+      }
+    } catch {
+      // ignore
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  async function watchFindTitles() {
+    const initData = getInitData();
+    if (!initData) {
+      setWatchState((s) => ({ ...s, error: t('dashboard.errNoInitData') || 'No initData' }));
+      return;
+    }
+
+    const q = String(d?.title || '').trim();
+    if (!q) return;
+
+    setWatchState((s) => ({ ...s, loading: true, error: '', step: 'idle' }));
+    const response = await fetch('/api/webapp/watch/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, q, limit: 5 })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const items = Array.isArray(json.items) ? json.items : [];
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      step: 'titles',
+      titles: items,
+      episodes: [],
+      sources: [],
+      videos: [],
+      animeRef: '',
+      episodeNum: '',
+      sourceRef: ''
+    }));
+  }
+
+  async function watchPickTitle(item) {
+    const initData = getInitData();
+    const animeRef = String(item?.animeRef || '').trim();
+    if (!initData || !animeRef) return;
+
+    setWatchState((s) => ({ ...s, loading: true, error: '', animeRef, step: 'titles' }));
+    const response = await fetch('/api/webapp/watch/episodes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, animeRef })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const episodes = Array.isArray(json.episodes) ? json.episodes : [];
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      step: 'episodes',
+      episodes,
+      sources: [],
+      videos: [],
+      episodeNum: '',
+      sourceRef: ''
+    }));
+  }
+
+  async function watchPickEpisode(ep) {
+    const initData = getInitData();
+    const animeRef = String(watchState.animeRef || '').trim();
+    const episodeNum = String(ep?.num || '').trim();
+    if (!initData || !animeRef || !episodeNum) return;
+
+    setWatchState((s) => ({ ...s, loading: true, error: '', episodeNum, step: 'episodes' }));
+    const response = await fetch('/api/webapp/watch/sources', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, animeRef, episodeNum })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const sources = Array.isArray(json.sources) ? json.sources : [];
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      step: 'sources',
+      sources,
+      videos: [],
+      sourceRef: ''
+    }));
+  }
+
+  async function watchPickSource(src) {
+    const initData = getInitData();
+    const sourceRef = String(src?.sourceRef || '').trim();
+    if (!initData || !sourceRef) return;
+
+    setWatchState((s) => ({ ...s, loading: true, error: '', sourceRef, step: 'sources' }));
+    const response = await fetch('/api/webapp/watch/videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, sourceRef })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const videos = Array.isArray(json.videos) ? json.videos : [];
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      step: 'videos',
+      videos
+    }));
+  }
 
   return (
     <main className="app">
@@ -81,34 +229,112 @@ export default function TitlePage() {
       ) : state.error ? (
         <p className="meta">{state.error}</p>
       ) : d ? (
-        <section className="card">
-          <div className="title-hero">
-            {d.imageLarge ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img className="title-cover" src={d.imageLarge} alt={d.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
-            ) : null}
-            <div className="title-meta">
-              <h1 className="title-h1">{d.title}</h1>
-              <p className="meta mono">{uid}</p>
-              <div className="kv">
-                <div className="kv-row"><span className="kv-k">{t('title.seasons')}:</span> <span className="kv-v">{d.seasons ?? t('common.na')}</span></div>
-                <div className="kv-row"><span className="kv-k">{t('title.episodes')}:</span> <span className="kv-v">{d.episodes ?? t('common.na')}</span></div>
-                <div className="kv-row"><span className="kv-k">{t('title.status')}:</span> <span className="kv-v">{d.status ?? t('common.na')}</span></div>
-                <div className="kv-row"><span className="kv-k">{t('title.score')}:</span> <span className="kv-v">{d.score ?? t('common.na')}</span></div>
-                <div className="kv-row"><span className="kv-k">{t('title.source')}:</span> <span className="kv-v">{d.source}</span></div>
+        <>
+          <section className="card">
+            <div className="title-hero">
+              {d.imageLarge ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img className="title-cover" src={d.imageLarge} alt={d.title} loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+              ) : null}
+              <div className="title-meta">
+                <h1 className="title-h1">{d.title}</h1>
+                <p className="meta mono">{uid}</p>
+                <div className="kv">
+                  <div className="kv-row"><span className="kv-k">{t('title.seasons')}:</span> <span className="kv-v">{d.seasons ?? t('common.na')}</span></div>
+                  <div className="kv-row"><span className="kv-k">{t('title.episodes')}:</span> <span className="kv-v">{d.episodes ?? t('common.na')}</span></div>
+                  <div className="kv-row"><span className="kv-k">{t('title.status')}:</span> <span className="kv-v">{d.status ?? t('common.na')}</span></div>
+                  <div className="kv-row"><span className="kv-k">{t('title.score')}:</span> <span className="kv-v">{d.score ?? t('common.na')}</span></div>
+                  <div className="kv-row"><span className="kv-k">{t('title.source')}:</span> <span className="kv-v">{d.source}</span></div>
+                </div>
+                {d.url ? (
+                  <p className="meta">
+                    <a className="link" href={d.url} target="_blank" rel="noreferrer">
+                      {t('title.open')}
+                    </a>
+                  </p>
+                ) : null}
               </div>
-              {d.url ? (
-                <p className="meta">
-                  <a className="link" href={d.url} target="_blank" rel="noreferrer">
-                    {t('title.open')}
-                  </a>
-                </p>
+            </div>
+            <div className="sep" />
+            <p className="synopsis">{d.synopsis ? d.synopsis : t('title.noSynopsis')}</p>
+          </section>
+
+          <section className="card">
+            <p className="section-title">{t('title.watchTitle')}</p>
+            <p className="meta">{t('title.watchHint')}</p>
+            <div className="invite-actions">
+              <button
+                className="btn"
+                type="button"
+                disabled={watchState.loading}
+                onClick={() => {
+                  watchFindTitles().catch((e) => {
+                    console.error(e);
+                    setWatchState((s) => ({ ...s, loading: false, error: e?.message || t('title.watchErr') }));
+                  });
+                }}
+              >
+                {t('title.watchFind')}
+              </button>
+
+              {watchState.error ? <p className="meta">{watchState.error}</p> : null}
+
+              {watchState.step === 'titles' && watchState.titles?.length ? (
+                <>
+                  <p className="meta">{t('title.watchPickTitle')}</p>
+                  {watchState.titles.map((it, idx) => (
+                    <button className="select" key={`${it.source}:${idx}`} type="button" onClick={() => watchPickTitle(it).catch(() => null)}>
+                      {it.title || `${it.source}`}
+                    </button>
+                  ))}
+                </>
+              ) : null}
+
+              {watchState.step === 'episodes' && watchState.episodes?.length ? (
+                <>
+                  <p className="meta">{t('title.watchPickEpisode')}</p>
+                  {watchState.episodes.map((ep) => (
+                    <button className="select" key={ep.num} type="button" onClick={() => watchPickEpisode(ep).catch(() => null)}>
+                      {ep.title ? `${ep.num}. ${ep.title}` : ep.num}
+                    </button>
+                  ))}
+                </>
+              ) : null}
+
+              {watchState.step === 'sources' && watchState.sources?.length ? (
+                <>
+                  <p className="meta">{t('title.watchPickSource')}</p>
+                  {watchState.sources.map((src, idx) => (
+                    <button className="select" key={`${idx}:${src.title}`} type="button" onClick={() => watchPickSource(src).catch(() => null)}>
+                      {src.title || t('title.watchOpen')}
+                    </button>
+                  ))}
+                </>
+              ) : null}
+
+              {watchState.step === 'videos' && watchState.videos?.length ? (
+                <>
+                  <p className="meta">{t('title.watchPickQuality')}</p>
+                  {watchState.videos.map((v, idx) => (
+                    <button
+                      className="btn"
+                      key={`${idx}:${v.url}`}
+                      type="button"
+                      onClick={() => {
+                        openLink(v.url);
+                      }}
+                    >
+                      {t('title.watchOpen')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
+                    </button>
+                  ))}
+                  {watchState.videos.some((v) => v.headers && Object.keys(v.headers).length) ? (
+                    <p className="meta">{t('title.watchBlocked')}</p>
+                  ) : null}
+                </>
               ) : null}
             </div>
-          </div>
-          <div className="sep" />
-          <p className="synopsis">{d.synopsis ? d.synopsis : t('title.noSynopsis')}</p>
-        </section>
+          </section>
+        </>
       ) : null}
     </main>
   );

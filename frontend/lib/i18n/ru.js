@@ -44,6 +44,16 @@ export const ru = {
     source: 'Источник',
     open: 'Открыть ссылку',
     noSynopsis: 'Нет описания.',
-    errLoad: 'Не удалось загрузить'
+    errLoad: 'Не удалось загрузить',
+    watchTitle: 'Смотреть',
+    watchHint: 'Эпизоды и источники. Некоторые провайдеры могут быть недоступны по региону.',
+    watchFind: 'Найти эпизоды',
+    watchPickTitle: 'Выбери тайтл',
+    watchPickEpisode: 'Выбери эпизод',
+    watchPickSource: 'Выбери источник',
+    watchPickQuality: 'Выбери качество',
+    watchOpen: 'Открыть',
+    watchBlocked: 'Может требовать спец. заголовки; открой в браузере.',
+    watchErr: 'Не удалось загрузить ссылки'
   }
 };

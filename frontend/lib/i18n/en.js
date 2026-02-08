@@ -44,6 +44,16 @@ export const en = {
     source: 'Source',
     open: 'Open link',
     noSynopsis: 'No description.',
-    errLoad: 'Failed to load'
+    errLoad: 'Failed to load',
+    watchTitle: 'Watch',
+    watchHint: 'Get episodes and sources. Some providers may be region-locked.',
+    watchFind: 'Find episodes',
+    watchPickTitle: 'Pick a title',
+    watchPickEpisode: 'Pick an episode',
+    watchPickSource: 'Pick a source',
+    watchPickQuality: 'Pick a quality',
+    watchOpen: 'Open',
+    watchBlocked: 'This link may require special headers; open in browser.',
+    watchErr: 'Failed to load watch links'
   }
 };
