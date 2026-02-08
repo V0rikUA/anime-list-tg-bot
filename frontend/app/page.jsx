@@ -263,6 +263,26 @@ export default function MiniAppDashboard() {
     return json;
   }
 
+  async function triggerSearch(qRaw, page = 1) {
+    const q = String(qRaw || '').trim();
+    if (!q) return;
+    setSearchState((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const json = await runLiveSearch({ q, page });
+      setSearchState({
+        loading: false,
+        error: '',
+        items: Array.isArray(json.items) ? json.items : [],
+        page: Number(json.page) || page,
+        pages: Number(json.pages) || 1,
+        total: Number(json.total) || 0
+      });
+      setActiveTab('search');
+    } catch (e) {
+      setSearchState((s) => ({ ...s, loading: false, error: e?.message || t('dashboard.errLoad') }));
+    }
+  }
+
   async function addToList(uid, listType) {
     const initData = getInitData();
     if (!initData) throw new Error(t('dashboard.errNoInitData'));
@@ -305,8 +325,9 @@ export default function MiniAppDashboard() {
     }
 
     let cancelled = false;
-    setSearchState((s) => ({ ...s, loading: true, error: '' }));
     const timer = setTimeout(() => {
+      // Avoid duplicate requests if the user submits manually on Enter.
+      setSearchState((s) => ({ ...s, loading: true, error: '' }));
       runLiveSearch({ q, page: 1 })
         .then((json) => {
           if (cancelled) return;
@@ -336,20 +357,7 @@ export default function MiniAppDashboard() {
   async function searchGoToPage(nextPage) {
     const q = String(searchQuery || '').trim();
     if (!q) return;
-    setSearchState((s) => ({ ...s, loading: true, error: '' }));
-    try {
-      const json = await runLiveSearch({ q, page: nextPage });
-      setSearchState({
-        loading: false,
-        error: '',
-        items: Array.isArray(json.items) ? json.items : [],
-        page: Number(json.page) || nextPage,
-        pages: Number(json.pages) || 1,
-        total: Number(json.total) || 0
-      });
-    } catch (e) {
-      setSearchState((s) => ({ ...s, loading: false, error: e?.message || t('dashboard.errLoad') }));
-    }
+    await triggerSearch(q, nextPage);
   }
 
   function renderAnimeList(list, withWatchStats) {
@@ -498,7 +506,16 @@ export default function MiniAppDashboard() {
                   className="search-input"
                   value={searchRaw}
                   onChange={(e) => setSearchRaw(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    // Manual submit: allow searching by the current query-after-space,
+                    // otherwise fallback to searching by the whole input.
+                    const q = String(searchQuery || '').trim() || String(searchRaw || '').trim();
+                    triggerSearch(q, 1).catch(() => null);
+                  }}
                   placeholder={t('dashboard.searchPlaceholder')}
+                  enterKeyHint="search"
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="off"
