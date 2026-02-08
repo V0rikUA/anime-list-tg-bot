@@ -1,7 +1,14 @@
 export async function POST(request) {
-  const backend = process.env.BACKEND_URL || '';
+  // When running `npm run dev` locally (outside Docker), BACKEND_URL is often not set.
+  // Defaulting to localhost keeps dev UX simple, while Docker/production can still override via env.
+  const backend =
+    (process.env.BACKEND_URL || '').trim() ||
+    (process.env.NODE_ENV !== 'production' ? 'http://localhost:4000' : '');
   if (!backend) {
-    return Response.json({ ok: false, error: 'BACKEND_URL is not set' }, { status: 500 });
+    return Response.json(
+      { ok: false, error: 'BACKEND_URL is not set (e.g. http://localhost:4000)' },
+      { status: 500 }
+    );
   }
 
   const bodyText = await request.text();
@@ -32,4 +39,3 @@ export async function POST(request) {
     }
   });
 }
-

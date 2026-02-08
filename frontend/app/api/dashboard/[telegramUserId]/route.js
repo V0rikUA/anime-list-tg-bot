@@ -1,7 +1,12 @@
 export async function GET(_request, { params }) {
-  const backend = process.env.BACKEND_URL || '';
+  const backend =
+    (process.env.BACKEND_URL || '').trim() ||
+    (process.env.NODE_ENV !== 'production' ? 'http://localhost:4000' : '');
   if (!backend) {
-    return Response.json({ ok: false, error: 'BACKEND_URL is not set' }, { status: 500 });
+    return Response.json(
+      { ok: false, error: 'BACKEND_URL is not set (e.g. http://localhost:4000)' },
+      { status: 500 }
+    );
   }
 
   const telegramUserId = encodeURIComponent(String(params.telegramUserId || ''));
@@ -26,4 +31,3 @@ export async function GET(_request, { params }) {
     }
   });
 }
-
