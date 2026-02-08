@@ -93,6 +93,7 @@ const DICT = {
     watch_pick_episode: 'Pick an episode:',
     watch_pick_source: 'Pick a source:',
     watch_pick_quality: 'Pick a quality:',
+    watch_rebind: 'Wrong match?',
     watch_loading: 'Loading watch links...',
     watch_failed: 'Failed to load watch links.'
     ,
@@ -182,6 +183,7 @@ const DICT = {
     watch_pick_episode: 'Выбери эпизод:',
     watch_pick_source: 'Выбери источник:',
     watch_pick_quality: 'Выбери качество:',
+    watch_rebind: 'Неправильное связывание?',
     watch_loading: 'Загружаю ссылки...',
     watch_failed: 'Не удалось загрузить ссылки.'
     ,
@@ -271,6 +273,7 @@ const DICT = {
     watch_pick_episode: 'Обери епізод:',
     watch_pick_source: 'Обери джерело:',
     watch_pick_quality: 'Обери якість:',
+    watch_rebind: 'Неправильне зіставлення?',
     watch_loading: 'Завантажую посилання...',
     watch_failed: 'Не вдалося завантажити посилання.'
     ,

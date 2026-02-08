@@ -232,6 +232,10 @@ function navRow(lang, { back = true, home = true } = {}) {
   return row;
 }
 
+function watchRebindRow(lang) {
+  return [Markup.button.callback(t(lang, 'watch_rebind'), 'watch:rebind')];
+}
+
 function cancelKeyboard(lang) {
   // "Cancel" in the single-screen UX means: go to the main menu.
   return Markup.inlineKeyboard([navRow(lang, { back: false, home: true })]);
@@ -511,7 +515,7 @@ if (!bot) {
         ...titles.slice(0, 10).map((it, idx) => `${idx + 1}. ${it.title || it.source || 'unknown'}`)
       ];
 
-      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...buttons, navRow(lang)]));
+      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...buttons, watchRebindRow(lang), navRow(lang)]));
     }
 
     if (state.id === WATCH_EPISODES) {
@@ -531,7 +535,7 @@ if (!bot) {
         ...slice.map((ep) => ep.title ? `${ep.num}. ${ep.title}` : String(ep.num))
       ];
 
-      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...rows, watchRebindRow(lang), navRow(lang)]));
     }
 
     if (state.id === WATCH_SOURCES) {
@@ -545,7 +549,7 @@ if (!bot) {
         Markup.button.callback(String(s.title || `#${idx + 1}`), `watch:src:${idx}`)
       ]));
 
-      return renderScreen(ctx, session, t(lang, 'watch_pick_source'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+      return renderScreen(ctx, session, t(lang, 'watch_pick_source'), Markup.inlineKeyboard([...rows, watchRebindRow(lang), navRow(lang)]));
     }
 
     if (state.id === WATCH_VIDEOS) {
@@ -561,7 +565,7 @@ if (!bot) {
         return [Markup.button.url(label, String(v.url))];
       });
 
-      return renderScreen(ctx, session, t(lang, 'watch_pick_quality'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+      return renderScreen(ctx, session, t(lang, 'watch_pick_quality'), Markup.inlineKeyboard([...rows, watchRebindRow(lang), navRow(lang)]));
     }
 
     session.current = { id: HOME };
@@ -642,6 +646,32 @@ if (!bot) {
 
     await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
     try {
+      const map = await repository.getWatchMap(anime.uid);
+
+      // If we have a stored binding, try to resolve it to a fresh animeRef and jump to episodes.
+      if (map?.watchSource && map?.watchUrl) {
+        const mappedOut = await watchSearch({ q: anime.title, source: map.watchSource, limit: 5 });
+        const mappedItems = Array.isArray(mappedOut?.items) ? mappedOut.items : [];
+        const match = mappedItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
+        if (match?.animeRef) {
+          session.watch = {
+            uid: anime.uid,
+            q: anime.title,
+            titles: mappedItems,
+            animeRef: String(match.animeRef),
+            episodes: [],
+            sources: [],
+            videos: [],
+            episodeNum: ''
+          };
+
+          const epsOut = await watchEpisodes({ animeRef: String(match.animeRef) });
+          session.watch.episodes = Array.isArray(epsOut?.episodes) ? epsOut.episodes : [];
+          await pushAndGo(ctx, lang, { id: WATCH_EPISODES });
+          return;
+        }
+      }
+
       const out = await watchSearch({ q: anime.title, limit: 5 });
       const items = Array.isArray(out?.items) ? out.items : [];
       session.watch = {
@@ -1077,6 +1107,26 @@ if (!bot) {
     await startWatchFlow(ctx, lang, uid);
   });
 
+  bot.action(/^watch:rebind$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = String(session.watch?.uid || '').trim();
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    try {
+      await repository.clearWatchMap(uid);
+    } catch {
+      // ignore
+    }
+
+    // Restart watch flow without a stored binding.
+    await startWatchFlow(ctx, lang, uid);
+  });
+
   bot.action(/^watch:title:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
@@ -1094,6 +1144,18 @@ if (!bot) {
     if (!animeRef) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
       return;
+    }
+
+    // Persist the binding so next time we can jump straight to episodes.
+    try {
+      const uid = String(session.watch?.uid || '').trim();
+      const watchSource = String(picked?.source || '').trim();
+      const watchUrl = String(picked?.url || '').trim();
+      if (uid && watchSource && watchUrl) {
+        await repository.setWatchMap(uid, watchSource, watchUrl, String(picked?.title || '').trim() || null);
+      }
+    } catch {
+      // ignore
     }
 
     session.watch.animeRef = animeRef;
