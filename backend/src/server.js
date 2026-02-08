@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { config } from './config.js';
+import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 /**
  * Extracts safe metadata from Telegram initData string for debugging.
@@ -230,6 +231,93 @@ export async function startApiServer({
     }
 
     return { ok: true, token, link };
+  });
+
+  function validateInitDataOrReply(request, reply) {
+    const initData = request.body?.initData;
+    if (typeof initData !== 'string' || !initData.trim()) {
+      reply.code(400).send({ ok: false, error: 'initData is required' });
+      return null;
+    }
+
+    const validation = validateTelegramWebAppInitData({
+      initData,
+      botToken: telegramToken,
+      maxAgeSec: webAppAuthMaxAgeSec
+    });
+
+    if (!validation.ok) {
+      const meta = extractInitDataMeta(initData);
+      app.log.warn({ error: validation.error, meta }, 'telegram initData validation failed (webapp)');
+      reply.code(401).send(validation);
+      return null;
+    }
+
+    return validation;
+  }
+
+  app.post('/api/webapp/watch/search', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const q = String(request.body?.q || '').trim();
+    const source = request.body?.source ? String(request.body.source) : '';
+    const limit = Number(request.body?.limit || 5);
+    if (!q) return reply.code(400).send({ ok: false, error: 'q is required' });
+
+    try {
+      const out = await watchSearch({ q, source: source || null, limit: Number.isFinite(limit) ? limit : 5 });
+      return reply.send(out);
+    } catch (error) {
+      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/webapp/watch/episodes', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const animeRef = String(request.body?.animeRef || '').trim();
+    if (!animeRef) return reply.code(400).send({ ok: false, error: 'animeRef is required' });
+
+    try {
+      const out = await watchEpisodes({ animeRef });
+      return reply.send(out);
+    } catch (error) {
+      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/webapp/watch/sources', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const animeRef = String(request.body?.animeRef || '').trim();
+    const episodeNum = String(request.body?.episodeNum || '').trim();
+    if (!animeRef) return reply.code(400).send({ ok: false, error: 'animeRef is required' });
+    if (!episodeNum) return reply.code(400).send({ ok: false, error: 'episodeNum is required' });
+
+    try {
+      const out = await watchSourcesForEpisode({ animeRef, episodeNum });
+      return reply.send(out);
+    } catch (error) {
+      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    }
+  });
+
+  app.post('/api/webapp/watch/videos', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const sourceRef = String(request.body?.sourceRef || '').trim();
+    if (!sourceRef) return reply.code(400).send({ ok: false, error: 'sourceRef is required' });
+
+    try {
+      const out = await watchVideos({ sourceRef });
+      return reply.send(out);
+    } catch (error) {
+      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    }
   });
 
   // Client-side diagnostic logs from the Mini App (optional).

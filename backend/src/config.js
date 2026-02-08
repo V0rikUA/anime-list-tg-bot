@@ -44,6 +44,9 @@ export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
 
+  watchApiUrl: process.env.WATCH_API_URL || '',
+  watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
+
   dbClient: process.env.DB_CLIENT || 'sqlite3',
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
   databaseUrl: process.env.DATABASE_URL || '',
