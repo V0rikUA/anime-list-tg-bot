@@ -137,12 +137,54 @@ export default function MiniAppDashboard() {
 
     setInviteLink(link);
 
-    try {
-      await navigator.clipboard.writeText(link);
+    async function copyText(text) {
+      // 1) Modern Clipboard API (may be blocked in some WebViews)
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch {
+        // fall through
+      }
+
+      // 2) Legacy execCommand fallback
+      try {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.setAttribute('readonly', 'true');
+        el.style.position = 'fixed';
+        el.style.top = '-1000px';
+        el.style.left = '-1000px';
+        document.body.appendChild(el);
+        el.focus();
+        el.select();
+        el.setSelectionRange(0, el.value.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(el);
+        return Boolean(ok);
+      } catch {
+        return false;
+      }
+    }
+
+    const ok = await copyText(link);
+    if (ok) {
       setInviteStatus(t('dashboard.inviteCopied'));
-    } catch (e) {
-      // Clipboard API can be restricted in some WebViews.
-      setInviteStatus(t('dashboard.inviteCopyFailed'));
+      try {
+        tg?.HapticFeedback?.notificationOccurred?.('success');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    // Clipboard can be restricted in some WebViews. Keep the link visible for manual copy.
+    setInviteStatus(t('dashboard.inviteCopyFailed'));
+    try {
+      tg?.HapticFeedback?.notificationOccurred?.('error');
+    } catch {
+      // ignore
     }
   }
 
