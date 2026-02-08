@@ -48,6 +48,7 @@ export const en = {
     watchTitle: 'Watch',
     watchHint: 'Get episodes and sources. Some providers may be region-locked.',
     watchFind: 'Find episodes',
+    watchRebind: 'Wrong match?',
     watchPickTitle: 'Pick a title',
     watchPickEpisode: 'Pick an episode',
     watchPickSource: 'Pick a source',

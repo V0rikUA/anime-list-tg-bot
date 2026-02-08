@@ -48,6 +48,7 @@ export const uk = {
     watchTitle: 'Дивитися',
     watchHint: 'Епізоди та джерела. Деякі провайдери можуть бути недоступні за регіоном.',
     watchFind: 'Знайти епізоди',
+    watchRebind: 'Неправильне зіставлення?',
     watchPickTitle: 'Обери тайтл',
     watchPickEpisode: 'Обери епізод',
     watchPickSource: 'Обери джерело',

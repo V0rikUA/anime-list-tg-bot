@@ -48,6 +48,7 @@ export const ru = {
     watchTitle: 'Смотреть',
     watchHint: 'Эпизоды и источники. Некоторые провайдеры могут быть недоступны по региону.',
     watchFind: 'Найти эпизоды',
+    watchRebind: 'Неправильное связывание?',
     watchPickTitle: 'Выбери тайтл',
     watchPickEpisode: 'Выбери эпизод',
     watchPickSource: 'Выбери источник',

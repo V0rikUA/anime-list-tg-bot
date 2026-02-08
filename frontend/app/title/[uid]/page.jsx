@@ -27,6 +27,7 @@ export default function TitlePage() {
     animeRef: '',
     episodeNum: '',
     sourceRef: '',
+    map: null,
     titles: [],
     episodes: [],
     sources: [],
@@ -215,14 +216,13 @@ export default function TitlePage() {
       return;
     }
 
-    const q = String(d?.title || '').trim();
-    if (!q) return;
+    if (!uid) return;
 
     setWatchState((s) => ({ ...s, loading: true, error: '', step: 'idle' }));
     const response = await fetch('/api/webapp/watch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, q, limit: 5 })
+      body: JSON.stringify({ initData, uid, limit: 5 })
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
@@ -230,10 +230,18 @@ export default function TitlePage() {
     }
 
     const items = Array.isArray(json.items) ? json.items : [];
+    const map = json.map || null;
+
+    if (json.autoPick?.animeRef) {
+      await watchPickTitle({ ...json.autoPick, _map: map }).catch(() => null);
+      return;
+    }
+
     setWatchState((s) => ({
       ...s,
       loading: false,
       step: 'titles',
+      map,
       titles: items,
       episodes: [],
       sources: [],
@@ -248,6 +256,27 @@ export default function TitlePage() {
     const initData = getInitData();
     const animeRef = String(item?.animeRef || '').trim();
     if (!initData || !animeRef) return;
+
+    // Persist binding for fast access next time (best-effort).
+    try {
+      const watchSource = String(item?.source || '').trim();
+      const watchUrl = String(item?.url || '').trim();
+      if (uid && watchSource && watchUrl) {
+        fetch('/api/webapp/watch/bind', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initData,
+            uid,
+            watchSource,
+            watchUrl,
+            watchTitle: String(item?.title || '').trim() || null
+          })
+        }).catch(() => null);
+      }
+    } catch {
+      // ignore
+    }
 
     setWatchState((s) => ({ ...s, loading: true, error: '', animeRef, step: 'titles' }));
     const response = await fetch('/api/webapp/watch/episodes', {
@@ -271,6 +300,38 @@ export default function TitlePage() {
       episodeNum: '',
       sourceRef: ''
     }));
+  }
+
+  async function watchRebind() {
+    const initData = getInitData();
+    if (!initData || !uid) return;
+
+    try {
+      await fetch('/api/webapp/watch/unbind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, uid })
+      });
+    } catch {
+      // ignore
+    }
+
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      error: '',
+      step: 'idle',
+      animeRef: '',
+      episodeNum: '',
+      sourceRef: '',
+      map: null,
+      titles: [],
+      episodes: [],
+      sources: [],
+      videos: []
+    }));
+
+    await watchFindTitles().catch(() => null);
   }
 
   async function watchPickEpisode(ep) {
@@ -420,6 +481,12 @@ export default function TitlePage() {
               >
                 {t('title.watchFind')}
               </button>
+
+              {watchState.step !== 'idle' || watchState.map ? (
+                <button className="select" type="button" disabled={watchState.loading} onClick={() => watchRebind().catch(() => null)}>
+                  {t('title.watchRebind')}
+                </button>
+              ) : null}
 
               {watchState.error ? <p className="meta">{watchState.error}</p> : null}
 
