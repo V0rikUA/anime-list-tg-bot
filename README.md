@@ -9,7 +9,7 @@ Bot features:
 - recommendations between friends
 - friend system via invite token or invite link
 - dashboard API for frontend/mini app
-- Telegram Mini App dashboard (`/app`)
+- Telegram Mini App dashboard (`/mini`)
 
 ## Setup
 
@@ -24,7 +24,7 @@ Fill `.env` values:
 - `TELEGRAM_BOT_USERNAME` (for invite links)
 - `DB_CLIENT` (`pg` for docker compose, `sqlite3` for local sqlite)
 - `DATABASE_URL` (required for `pg`)
-- `WEB_APP_URL` (public URL for mini app, usually `https://your-domain/app`)
+- `WEB_APP_URL` (public URL for mini app, usually `https://your-domain/mini`)
 - `STARTUP_MAX_RETRIES`, `STARTUP_RETRY_DELAY_MS` (DB readiness gate before start)
 - `WEBAPP_AUTH_MAX_AGE_SEC` (max age for Telegram `initData`, default 86400)
 
@@ -38,9 +38,9 @@ docker compose up --build -d
 ```
 
 Backend API: `http://localhost:4000`
-Dashboard (Next.js): `http://localhost:3000/app`
+Dashboard (Next.js): `http://localhost:3000/mini`
 
-For Telegram Mini App you must use an HTTPS URL (domain or tunnel) that points to the Next.js service (port 3000) and set `WEB_APP_URL` to `https://<domain>/app`.
+For Telegram Mini App you must use an HTTPS URL (domain or tunnel) that points to the Next.js service (port 3000) and set `WEB_APP_URL` to `https://<domain>/mini`.
 
 ## Dev (Docker + Postgres + Hot Reload)
 
@@ -104,7 +104,7 @@ docker compose exec backend npm run migrate
 - `GET /api/users/:telegramUserId/watch-stats/:uid`
 - `GET /api/users/:telegramUserId/friends`
 - `GET /health`
-- `GET /app` (Mini App UI)
+- `GET /mini` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (validate Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (secure dashboard by initData; used by Mini App)
 
@@ -138,10 +138,10 @@ curl -X POST http://localhost:4000/api/telegram/validate-init-data \
 2. Create tunnel: `cloudflared tunnel --url http://localhost:4000`
 3. Copy HTTPS URL from cloudflared output, then set in `.env`:
    - `API_BASE_URL=https://<your-url>`
-   - `WEB_APP_URL=https://<your-url>/app`
+   - `WEB_APP_URL=https://<your-url>/mini`
 4. In BotFather set `/setmenubutton` to `WEB_APP_URL`.
 5. Restart app: `docker compose up -d --build`
-6. In bot run `/app` and open Mini App button.
+6. In bot run `/app` and open Mini App button (URL points to `/mini`).
 
 ## Telegram Webhook (Cloudflare Tunnel)
 

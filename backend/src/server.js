@@ -5,6 +5,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 
+/**
+ * Extracts safe metadata from Telegram initData string for debugging.
+ * Never logs the raw initData value.
+ * @param {unknown} initDataRaw
+ */
 function extractInitDataMeta(initDataRaw) {
   const initData = String(initDataRaw || '').trim();
   if (!initData) return null;
@@ -33,10 +38,27 @@ function extractInitDataMeta(initDataRaw) {
   };
 }
 
+/**
+ * Starts Fastify HTTP server with:
+ * - static assets (legacy mini app)
+ * - `/app` which redirects to `webAppUrl` when provided (Next.js mini app)
+ * - healthcheck and Telegram endpoints
+ *
+ * @param {Object} opts
+ * @param {import('./db.js').AnimeRepository} opts.repository
+ * @param {number} opts.port
+ * @param {string} opts.telegramToken
+ * @param {string=} opts.webAppUrl
+ * @param {number} opts.webAppAuthMaxAgeSec
+ * @param {any} opts.bot
+ * @param {string} opts.telegramWebhookPath
+ * @param {string} opts.telegramWebhookSecret
+ */
 export async function startApiServer({
   repository,
   port,
   telegramToken,
+  webAppUrl,
   webAppAuthMaxAgeSec,
   bot,
   telegramWebhookPath,
@@ -60,6 +82,10 @@ export async function startApiServer({
   });
 
   app.get('/app', async (request, reply) => {
+    const target = String(webAppUrl || '').trim();
+    if (target) {
+      return reply.redirect(target);
+    }
     return reply.sendFile('index.html');
   });
 

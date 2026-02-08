@@ -807,6 +807,7 @@ const apiServer = await startApiServer({
   repository,
   port: config.apiPort,
   telegramToken: config.telegramToken,
+  webAppUrl: config.webAppUrl,
   webAppAuthMaxAgeSec: config.webAppAuthMaxAgeSec,
   bot,
   telegramWebhookPath: config.telegramWebhookPath,

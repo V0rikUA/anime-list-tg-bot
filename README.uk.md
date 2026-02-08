@@ -9,7 +9,7 @@
 - рекомендації між друзями
 - система друзів через інвайт-токен або посилання
 - Dashboard API для фронтенда/mini app
-- Telegram Mini App дашборд (`/app`)
+- Telegram Mini App дашборд (`/mini`)
 
 ## Налаштування
 
@@ -23,7 +23,7 @@ cp .env.example .env
 - `TELEGRAM_BOT_USERNAME` (для інвайт-посилань)
 - `DB_CLIENT` (`pg` для docker compose, `sqlite3` для локальної sqlite)
 - `DATABASE_URL` (обов'язково для `pg`)
-- `WEB_APP_URL` (публічний URL mini app, зазвичай `https://your-domain/app`)
+- `WEB_APP_URL` (публічний URL mini app, зазвичай `https://your-domain/mini`)
 - `STARTUP_MAX_RETRIES`, `STARTUP_RETRY_DELAY_MS` (очікування готовності DB під час старту)
 - `WEBAPP_AUTH_MAX_AGE_SEC` (max age для Telegram `initData`, за замовчуванням 86400)
 
@@ -92,7 +92,7 @@ docker compose exec backend npm run migrate
 - `GET /api/users/:telegramUserId/watch-stats/:uid`
 - `GET /api/users/:telegramUserId/friends`
 - `GET /health`
-- `GET /app` (Mini App UI)
+- `GET /mini` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (валідувати Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (безпечний дашборд через initData; використовується Mini App)
 
@@ -126,10 +126,10 @@ curl -X POST http://localhost:4000/api/telegram/validate-init-data \
 2. Створи тунель: `cloudflared tunnel --url http://localhost:4000`
 3. Скопіюй HTTPS URL з виводу і задай в `.env`:
    - `API_BASE_URL=https://<your-url>`
-   - `WEB_APP_URL=https://<your-url>/app`
+   - `WEB_APP_URL=https://<your-url>/mini`
 4. У BotFather встанови `/setmenubutton` на `WEB_APP_URL`.
 5. Перезапусти: `docker compose up -d --build`
-6. У боті виконай `/app` та відкрий кнопку Mini App.
+6. У боті виконай `/app` та відкрий кнопку Mini App (URL веде на `/mini`).
 
 ## Telegram Webhook (Cloudflare Tunnel)
 

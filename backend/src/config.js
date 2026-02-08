@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+/**
+ * @param {string} name
+ * @param {unknown} value
+ * @param {number} fallback
+ */
 function toInt(name, value, fallback) {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -34,7 +39,8 @@ export const config = {
 
   apiPort: rawPort,
   apiBaseUrl: process.env.API_BASE_URL || `http://localhost:${rawPort}`,
-  webAppUrl: process.env.WEB_APP_URL || `${process.env.API_BASE_URL || `http://localhost:${rawPort}`}/app`,
+  // Used for Telegram Mini App "Web App" button (must be HTTPS in Telegram).
+  webAppUrl: process.env.WEB_APP_URL || `${process.env.FRONTEND_BASE_URL || 'http://localhost:3000'}/mini`,
 
   telegramWebhookUrl,
   telegramWebhookPath,
