@@ -52,7 +52,7 @@ export default function TitlePage() {
   return (
     <main className="app">
       <header className="topbar">
-        <button className="btn" type="button" onClick={() => router.push('/mini')}>
+        <button className="btn" type="button" onClick={() => router.push('/')}>
           {t('title.back')}
         </button>
         <div className="actions">

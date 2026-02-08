@@ -27,19 +27,19 @@ export function middleware(request) {
     return NextResponse.redirect(BOT_URL, 302);
   }
 
-  // Persist token to support in-app navigation (/mini -> /mini/title/...) without query params.
+  // Persist token to support in-app navigation without query params.
   const res = NextResponse.next();
   if (mt && mt === expected && cookieMt !== expected) {
     res.cookies.set(COOKIE_NAME, expected, {
       httpOnly: true,
       sameSite: 'lax',
       secure: true,
-      path: '/mini'
+      path: '/'
     });
   }
   return res;
 }
 
 export const config = {
-  matcher: ['/mini/:path*']
+  matcher: ['/', '/title/:path*', '/mini/:path*']
 };

@@ -9,7 +9,7 @@ import { useTelegramSafeArea } from '../../lib/hooks/useTelegramSafeArea';
 
 /**
  * When running outside Telegram (local dev), you can use debug mode:
- * `/mini?debug=1&uid=<telegramUserId>`
+ * `/?debug=1&uid=<telegramUserId>`
  *
  * @returns {string|null}
  */
@@ -152,7 +152,7 @@ export default function MiniAppDashboard() {
     }
 
     return list.map((item) => (
-      <Link className="item-link" href={`/mini/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
+      <Link className="item-link" href={`/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
         <article className="item">
           <div className="item-row">
             {item.imageSmall ? (
@@ -182,7 +182,7 @@ export default function MiniAppDashboard() {
     }
 
     return list.map((item) => (
-      <Link className="item-link" href={`/mini/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
+      <Link className="item-link" href={`/title/${encodeURIComponent(item.uid)}`} key={item.uid}>
         <article className="item">
           <div className="item-row">
             {item.imageSmall ? (

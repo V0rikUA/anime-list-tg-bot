@@ -1,5 +1,1 @@
-import { redirect } from 'next/navigation';
-
-export default function Home() {
-  redirect('/mini');
-}
+export { default } from './mini/page.jsx';
