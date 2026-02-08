@@ -5,6 +5,7 @@ import { createLogger } from './logger.js';
 import { startApiServer } from './server.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
 import { searchAnime } from './services/animeSources.js';
+import { translateShort } from './services/translate.js';
 import {
   formatFriends,
   formatRecommendationsFromFriends,
@@ -598,8 +599,23 @@ if (!bot) {
 
     try {
       const results = await searchAnime(query, 5);
-      await repository.upsertCatalog(results);
-      const compact = results.slice(0, 10).map((r) => ({
+      // Persist i18n titles and show localized titles in bot UI immediately.
+      const localized = await Promise.all(results.map(async (r) => {
+        const titleEn = String(r?.titleEn || r?.title || '').trim();
+        const titleRu = lang === 'ru' ? await translateShort(titleEn, 'ru').catch(() => '') : '';
+        const titleUk = lang === 'uk' ? await translateShort(titleEn, 'uk').catch(() => '') : '';
+        const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
+        return {
+          ...r,
+          title,
+          titleEn: titleEn || null,
+          titleRu: titleRu || null,
+          titleUk: titleUk || null
+        };
+      }));
+
+      await repository.upsertCatalog(localized);
+      const compact = localized.slice(0, 10).map((r) => ({
         uid: r.uid,
         title: r.title,
         source: r.source,
@@ -618,7 +634,7 @@ if (!bot) {
 
   async function startWatchFlow(ctx, lang, uid) {
     const session = getSession(ctx.from.id);
-    const anime = await repository.getCatalogItem(String(uid || '').trim());
+    const anime = await repository.getCatalogItemLocalized(String(uid || '').trim(), lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
