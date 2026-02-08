@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# anime-list-tg-bot
-=======
 # Anime Telegram Bot + Telegram Mini App
 
 Bot features:
@@ -156,4 +153,3 @@ Backend requirements:
 - Telegram will POST JSON updates to `TELEGRAM_WEBHOOK_URL`.
 - Backend responds `200` immediately and processes updates asynchronously.
 - If `TELEGRAM_WEBHOOK_SECRET` is set, backend enforces `X-Telegram-Bot-Api-Secret-Token`.
->>>>>>> b5578fc (init)
