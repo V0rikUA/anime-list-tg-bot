@@ -233,6 +233,23 @@ export async function startApiServer({
     return { ok: true, token, link };
   });
 
+  app.post('/api/webapp/lang', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const lang = String(request.body?.lang || '').trim().toLowerCase();
+    if (!lang) {
+      return reply.code(400).send({ ok: false, error: 'lang is required' });
+    }
+
+    const out = await repository.setUserLang(validation.telegramUserId, lang);
+    if (!out.ok) {
+      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    }
+
+    return { ok: true, lang: out.lang };
+  });
+
   function validateInitDataOrReply(request, reply) {
     const initData = request.body?.initData;
     if (typeof initData !== 'string' || !initData.trim()) {

@@ -112,7 +112,23 @@ export default function MiniAppDashboard() {
   }, [lang]);
 
   function onLangChange(e) {
-    dispatch(setLanguage(e.target.value));
+    const next = e.target.value;
+    dispatch(setLanguage(next));
+
+    // Best-effort: persist preferred language to backend so titles/search match UI language.
+    try {
+      const tg = window.Telegram?.WebApp;
+      const initData = typeof tg?.initData === 'string' ? tg.initData.trim() : '';
+      if (initData) {
+        fetch('/api/webapp/lang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData, lang: next })
+        }).catch(() => null);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   function onThemeChange(e) {

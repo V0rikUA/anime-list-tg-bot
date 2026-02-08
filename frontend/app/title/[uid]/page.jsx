@@ -342,7 +342,22 @@ export default function TitlePage() {
             className="select select--sm"
             value={lang}
             onChange={(e) => {
-              dispatch(setLanguage(e.target.value));
+              const next = e.target.value;
+              dispatch(setLanguage(next));
+
+              // Best-effort: persist preferred language to backend so bot/dashboard match UI language.
+              try {
+                const initData = getInitData();
+                if (initData) {
+                  fetch('/api/webapp/lang', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData, lang: next })
+                  }).catch(() => null);
+                }
+              } catch {
+                // ignore
+              }
             }}
             aria-label={t('common.language')}
           >
