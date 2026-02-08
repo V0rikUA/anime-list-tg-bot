@@ -14,24 +14,34 @@
           <h1>Anime Dashboard</h1>
           <p id="userMeta" class="meta">Loading profile...</p>
         </div>
-        <button id="refreshBtn" class="btn">Refresh</button>
+        <div class="actions">
+          <label class="lang">
+            <span class="sr-only">Language</span>
+            <select id="langSelect" class="select" aria-label="Language">
+              <option value="en">EN</option>
+              <option value="ru">RU</option>
+              <option value="uk">UK</option>
+            </select>
+          </label>
+          <button id="refreshBtn" class="btn">Refresh</button>
+        </div>
       </header>
 
       <section class="stats-grid" id="statsGrid">
         <article class="card metric">
-          <p class="label">Watched</p>
+          <p class="label" id="labelWatched">Watched</p>
           <p class="value" id="watchedCount">0</p>
         </article>
         <article class="card metric">
-          <p class="label">Planned</p>
+          <p class="label" id="labelPlanned">Planned</p>
           <p class="value" id="plannedCount">0</p>
         </article>
         <article class="card metric">
-          <p class="label">Favorites</p>
+          <p class="label" id="labelFavorites">Favorites</p>
           <p class="value" id="favoritesCount">0</p>
         </article>
         <article class="card metric">
-          <p class="label">Friends</p>
+          <p class="label" id="labelFriends">Friends</p>
           <p class="value" id="friendsCount">0</p>
         </article>
       </section>
@@ -54,8 +64,8 @@
       </section>
 
       <section class="card invite-box">
-        <p class="section-title">Invite Friend</p>
-        <p class="meta">Generate token in bot command: <code>/invite</code>, then friend runs <code>/join &lt;token&gt;</code>.</p>
+        <p class="section-title" id="inviteTitle">Invite Friend</p>
+        <p class="meta" id="inviteHint">Generate token in bot command: <code>/invite</code>, then friend runs <code>/join &lt;token&gt;</code>.</p>
       </section>
     </main>
 

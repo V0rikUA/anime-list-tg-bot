@@ -1,5 +1,7 @@
 # Anime Telegram Bot + Telegram Mini App
 
+[English](README.md) | [Русский](README.ru.md) | [Українська](README.uk.md)
+
 Bot features:
 - search anime from multiple APIs (Jikan + AniList)
 - track watched / planned / favorite anime

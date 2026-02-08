@@ -4,6 +4,19 @@ import path from 'node:path';
 import knex from 'knex';
 
 const TRACK_LIST_TYPES = new Set(['watched', 'planned', 'favorite']);
+const SUPPORTED_LANGS = new Set(['en', 'ru', 'uk']);
+
+function normalizeLang(raw) {
+  const value = String(raw || '').toLowerCase();
+  if (value.startsWith('ru')) return 'ru';
+  if (value.startsWith('uk')) return 'uk';
+  return 'en';
+}
+
+function normalizeStoredLang(raw) {
+  const lang = normalizeLang(raw);
+  return SUPPORTED_LANGS.has(lang) ? lang : 'en';
+}
 
 function normalizeAnime(item) {
   return {
@@ -100,20 +113,53 @@ export class AnimeRepository {
   }
 
   async ensureUser(telegramUser) {
+    const guessedLang = normalizeLang(telegramUser?.language_code);
     const payload = {
       telegram_id: String(telegramUser.id),
       username: telegramUser.username ?? null,
       first_name: telegramUser.first_name ?? null,
       last_name: telegramUser.last_name ?? null,
+      lang: guessedLang,
       updated_at: this.db.fn.now()
     };
 
-    await this.db('users').insert(payload).onConflict('telegram_id').merge(payload);
-    return this.db('users').where({ telegram_id: payload.telegram_id }).first();
+    // Do not override lang on existing user; only fill it on first insert.
+    const mergePayload = {
+      username: payload.username,
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      updated_at: payload.updated_at
+    };
+
+    await this.db('users').insert(payload).onConflict('telegram_id').merge(mergePayload);
+    const user = await this.db('users').where({ telegram_id: payload.telegram_id }).first();
+
+    if (user && !user.lang && guessedLang) {
+      await this.db('users')
+        .where({ telegram_id: payload.telegram_id })
+        .update({ lang: guessedLang, updated_at: this.db.fn.now() });
+      return this.db('users').where({ telegram_id: payload.telegram_id }).first();
+    }
+
+    return user;
   }
 
   async getUserByTelegramId(telegramId) {
     return this.db('users').where({ telegram_id: String(telegramId) }).first();
+  }
+
+  async setUserLang(telegramId, langRaw) {
+    const lang = normalizeStoredLang(langRaw);
+    const user = await this.getUserByTelegramId(telegramId);
+    if (!user) {
+      return { ok: false, reason: 'user_not_found' };
+    }
+
+    await this.db('users')
+      .where({ telegram_id: String(telegramId) })
+      .update({ lang, updated_at: this.db.fn.now() });
+
+    return { ok: true, lang };
   }
 
   async getFriends(telegramId) {
@@ -543,7 +589,8 @@ export class AnimeRepository {
             telegramId: user.telegram_id,
             username: user.username,
             firstName: user.first_name,
-            lastName: user.last_name
+            lastName: user.last_name,
+            lang: user.lang || null
           }
         : null,
       watched,
@@ -555,15 +602,24 @@ export class AnimeRepository {
   }
 
   async ensureUserInTransaction(trx, telegramUser) {
+    const guessedLang = normalizeLang(telegramUser?.language_code);
     const payload = {
       telegram_id: String(telegramUser.id),
       username: telegramUser.username ?? null,
       first_name: telegramUser.first_name ?? null,
       last_name: telegramUser.last_name ?? null,
+      lang: guessedLang,
       updated_at: this.db.fn.now()
     };
 
-    await trx('users').insert(payload).onConflict('telegram_id').merge(payload);
+    const mergePayload = {
+      username: payload.username,
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      updated_at: payload.updated_at
+    };
+
+    await trx('users').insert(payload).onConflict('telegram_id').merge(mergePayload);
     return trx('users').where({ telegram_id: payload.telegram_id }).first();
   }
 

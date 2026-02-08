@@ -6,9 +6,9 @@ function formatEpisodes(episodes) {
   return episodes === null || episodes === undefined ? '?' : String(episodes);
 }
 
-export function formatSearchResults(items) {
+export function formatSearchResults(items, labels = {}) {
   if (!items.length) {
-    return 'Nothing found. Try another title.';
+    return labels.empty || 'Nothing found. Try another title.';
   }
 
   return items
@@ -26,7 +26,8 @@ export function formatSearchResults(items) {
 
 export function formatTrackedList(title, items, options = {}) {
   if (!items.length) {
-    return `${title}: empty`;
+    const emptyWord = options.emptyWord || 'empty';
+    return `${title}: ${emptyWord}`;
   }
 
   const showWatchCounters = Boolean(options.showWatchCounters);
@@ -44,27 +45,30 @@ export function formatTrackedList(title, items, options = {}) {
   ].join('\n');
 }
 
-export function formatRecommendationsFromFriends(items) {
+export function formatRecommendationsFromFriends(items, labels = {}) {
   if (!items.length) {
-    return 'Recommendations from friends: empty';
+    return labels.empty || 'Recommendations from friends: empty';
   }
 
   return [
-    `Recommendations from friends (${items.length}):`,
+    (labels.title || 'Recommendations from friends') + ` (${items.length}):`,
     ...items.map((item, idx) => {
-      const names = item.recommenders?.length ? item.recommenders.join(', ') : 'unknown';
-      return `${idx + 1}. ${item.title} [${item.uid}] | by: ${names} | count: ${item.recommendCount}`;
+      const unknown = labels.unknown || 'unknown';
+      const names = item.recommenders?.length ? item.recommenders.join(', ') : unknown;
+      const by = labels.by || 'by';
+      const count = labels.count || 'count';
+      return `${idx + 1}. ${item.title} [${item.uid}] | ${by}: ${names} | ${count}: ${item.recommendCount}`;
     })
   ].join('\n');
 }
 
-export function formatFriends(items) {
+export function formatFriends(items, labels = {}) {
   if (!items.length) {
-    return 'Friends: empty';
+    return labels.empty || 'Friends: empty';
   }
 
   return [
-    `Friends (${items.length}):`,
+    (labels.title || 'Friends') + ` (${items.length}):`,
     ...items.map((friend, idx) => `${idx + 1}. ${friend.label} (tg: ${friend.telegramId})`)
   ].join('\n');
 }
