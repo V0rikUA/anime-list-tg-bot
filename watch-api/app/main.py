@@ -3,13 +3,46 @@ import time
 import secrets
 import importlib
 import inspect
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 
 APP_NAME = "watch-api"
+WATCH_API_TTL_SEC = int(os.environ.get("WATCH_API_TTL_SEC", "3600") or "3600")
+WATCH_API_TTL_SEC = max(60, WATCH_API_TTL_SEC)
+
+# In-memory cache for extractor search results (Python objects) to avoid hammering sources.
+# Keyed by (source, query). Values expire roughly with STORE TTL.
+_SEARCH_CACHE: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+
+def _gc_search_cache() -> None:
+    t = _now()
+    dead: List[Tuple[str, str]] = []
+    for k, v in _SEARCH_CACHE.items():
+        if t > float(v.get("expires_at", 0) or 0):
+            dead.append(k)
+    for k in dead:
+        _SEARCH_CACHE.pop(k, None)
+
+
+def _cache_get_search(source: str, query: str) -> Optional[list]:
+    hit = _SEARCH_CACHE.get((source, query))
+    if not hit:
+        return None
+    if _now() > float(hit.get("expires_at", 0) or 0):
+        _SEARCH_CACHE.pop((source, query), None)
+        return None
+    return hit.get("results") or None
+
+
+def _cache_set_search(source: str, query: str, results: list) -> None:
+    _SEARCH_CACHE[(source, query)] = {
+        "results": results,
+        "expires_at": _now() + WATCH_API_TTL_SEC,
+    }
 
 
 def _now() -> float:
@@ -50,7 +83,7 @@ class _Store:
             self._items.pop(k, None)
 
 
-STORE = _Store(ttl_seconds=int(os.environ.get("WATCH_API_TTL_SEC", "3600") or "3600"))
+STORE = _Store(ttl_seconds=WATCH_API_TTL_SEC)
 
 
 def _safe_str(v: Any, limit: int = 2000) -> str:
@@ -123,6 +156,11 @@ class SearchItem(BaseModel):
 class SearchOut(BaseModel):
     ok: bool = True
     items: List[SearchItem]
+    page: int = 1
+    limit: int = 5
+    total: int = 0
+    pages: int = 1
+    sourceUsed: Optional[str] = None
 
 
 class EpisodeItem(BaseModel):
@@ -164,6 +202,7 @@ app = FastAPI(title=APP_NAME)
 @app.get("/v1/health", response_model=HealthOut)
 async def health():
     STORE.gc()
+    _gc_search_cache()
     return {"ok": True}
 
 
@@ -185,8 +224,10 @@ async def search(
     q: str = Query(..., min_length=1, max_length=200),
     source: Optional[str] = Query(None, min_length=1, max_length=64),
     limit: int = Query(5, ge=1, le=10),
+    page: int = Query(1, ge=1, le=100),
 ):
     STORE.gc()
+    _gc_search_cache()
     query = _safe_str(q, 200)
     sources_to_try: List[str]
     if source:
@@ -196,13 +237,28 @@ async def search(
 
     items: List[SearchItem] = []
     errors: List[str] = []
+    total = 0
+    pages = 1
+    used_source: Optional[str] = None
+
+    offset = (int(page) - 1) * int(limit)
     for src in sources_to_try:
         try:
-            extractor = _get_extractor(src)
-            results = await _call(extractor, "a_search", "search", query)
-            if not results:
+            results = _cache_get_search(src, query)
+            if results is None:
+                extractor = _get_extractor(src)
+                results = await _call(extractor, "a_search", "search", query)
+                results = list(results or [])
+                _cache_set_search(src, query, results)
+
+            total = len(results or [])
+            if total <= 0:
                 continue
-            for r in results[:limit]:
+
+            pages = max(1, (total + int(limit) - 1) // int(limit))
+            used_source = src
+
+            for r in (results or [])[offset : offset + int(limit)]:
                 # Store the search result object so we can resolve anime/episodes later.
                 anime_ref = STORE.put("search", r, meta={"source": src})
                 items.append(
@@ -214,15 +270,23 @@ async def search(
                         animeRef=anime_ref,
                     )
                 )
-            if items:
-                break
+            break
         except Exception as e:  # noqa: BLE001
             errors.append(f"{src}: {type(e).__name__}")
             continue
 
-    if not items and errors:
+    if total <= 0 and errors:
         raise HTTPException(status_code=502, detail="; ".join(errors))
-    return {"ok": True, "items": items}
+
+    return {
+        "ok": True,
+        "items": items,
+        "page": int(page),
+        "limit": int(limit),
+        "total": int(total),
+        "pages": int(pages),
+        "sourceUsed": used_source,
+    }
 
 
 @app.get("/v1/episodes", response_model=EpisodesOut)
