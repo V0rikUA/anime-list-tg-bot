@@ -24,6 +24,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      watch-api:
+        condition: service_started
     ports:
       - "4000:4000"
     command: ["sh", "./scripts/docker-start.sh"]
