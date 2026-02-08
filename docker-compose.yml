@@ -35,6 +35,7 @@ services:
     environment:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      WATCH_API_URL: http://watch-api:8000
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
       API_PORT: 4000
@@ -42,7 +43,13 @@ services:
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
-      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/mini}
+      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/}
+
+  watch-api:
+    build:
+      context: ./watch-api
+      dockerfile: Dockerfile
+    restart: unless-stopped
 
   frontend:
     profiles: ["frontend"]
