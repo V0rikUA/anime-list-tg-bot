@@ -83,6 +83,16 @@ export default function MiniAppDashboard() {
     return s.slice(idx + 1).trim();
   }
 
+  function mapTelegramAuthError(code) {
+    const c = String(code || '').trim();
+    if (!c) return '';
+    if (c === 'expired_auth_date') return t('dashboard.searchSessionExpired');
+    if (c === 'invalid_hash') return t('dashboard.searchSessionExpired');
+    if (c === 'missing_hash') return t('dashboard.searchSessionExpired');
+    if (c === 'missing_user_id') return t('dashboard.searchSessionExpired');
+    return '';
+  }
+
   async function fetchDashboardSecurely() {
     const tg = window.Telegram?.WebApp;
     const initData = typeof tg?.initData === 'string' ? tg.initData.trim() : '';
@@ -247,7 +257,8 @@ export default function MiniAppDashboard() {
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
-      throw new Error(json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
     }
     return json;
   }
@@ -262,7 +273,8 @@ export default function MiniAppDashboard() {
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
-      throw new Error(json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
     }
   }
 
@@ -276,7 +288,8 @@ export default function MiniAppDashboard() {
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
-      throw new Error(json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
     }
   }
 
@@ -493,6 +506,8 @@ export default function MiniAppDashboard() {
                 />
               </div>
 
+              {searchRaw.trim() && !searchQuery ? <p className="meta">{t('dashboard.searchWaitSpace')}</p> : null}
+              {searchState.loading ? <p className="meta">{t('dashboard.searchLoading')}</p> : null}
               {searchState.error ? <p className="meta">{searchState.error}</p> : null}
               {searchToast ? <p className="meta">{searchToast}</p> : null}
 
