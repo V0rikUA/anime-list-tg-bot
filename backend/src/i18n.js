@@ -87,7 +87,14 @@ const DICT = {
     act_watch: 'Watch',
     act_plan: 'Plan',
     act_favorite: 'Favorite',
-    act_recommend: 'Recommend'
+    act_recommend: 'Recommend',
+    act_watch_links: 'Watch links',
+    watch_pick_title: 'Pick a title:',
+    watch_pick_episode: 'Pick an episode:',
+    watch_pick_source: 'Pick a source:',
+    watch_pick_quality: 'Pick a quality:',
+    watch_loading: 'Loading watch links...',
+    watch_failed: 'Failed to load watch links.'
     ,
     webapp_https_required: 'Mini App button requires HTTPS. Set WEB_APP_URL to an https:// URL (for example via Cloudflared tunnel).',
     webapp_open_link: 'Mini App link: {url}'
@@ -169,7 +176,14 @@ const DICT = {
     act_watch: 'Смотреть',
     act_plan: 'В план',
     act_favorite: 'В избранное',
-    act_recommend: 'Рекомендовать'
+    act_recommend: 'Рекомендовать',
+    act_watch_links: 'Ссылки',
+    watch_pick_title: 'Выбери тайтл:',
+    watch_pick_episode: 'Выбери эпизод:',
+    watch_pick_source: 'Выбери источник:',
+    watch_pick_quality: 'Выбери качество:',
+    watch_loading: 'Загружаю ссылки...',
+    watch_failed: 'Не удалось загрузить ссылки.'
     ,
     webapp_https_required: 'Кнопка Mini App требует HTTPS. Укажи WEB_APP_URL как https:// (например через Cloudflared туннель).',
     webapp_open_link: 'Ссылка на Mini App: {url}'
@@ -251,7 +265,14 @@ const DICT = {
     act_watch: 'Переглянув',
     act_plan: 'В план',
     act_favorite: 'В обране',
-    act_recommend: 'Рекомендувати'
+    act_recommend: 'Рекомендувати',
+    act_watch_links: 'Посилання',
+    watch_pick_title: 'Обери тайтл:',
+    watch_pick_episode: 'Обери епізод:',
+    watch_pick_source: 'Обери джерело:',
+    watch_pick_quality: 'Обери якість:',
+    watch_loading: 'Завантажую посилання...',
+    watch_failed: 'Не вдалося завантажити посилання.'
     ,
     webapp_https_required: 'Кнопка Mini App потребує HTTPS. Вкажи WEB_APP_URL як https:// (наприклад через Cloudflared тунель).',
     webapp_open_link: 'Посилання на Mini App: {url}'

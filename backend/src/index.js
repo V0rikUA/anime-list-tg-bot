@@ -11,6 +11,7 @@ import {
   formatSearchResults,
   formatTrackedList
 } from './utils/formatters.js';
+import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 const { Markup, Telegraf } = telegrafPkg;
 
@@ -261,6 +262,7 @@ function actionKeyboard(lang, uid) {
       Markup.button.callback(t(lang, 'act_favorite'), `act:favorite:${uid}`),
       Markup.button.callback(t(lang, 'act_recommend'), `act:recommend:${uid}`)
     ],
+    [Markup.button.callback(t(lang, 'act_watch_links'), `watch:start:${uid}`)],
     navRow(lang)
   ]);
 }
@@ -356,6 +358,10 @@ if (!bot) {
   const INVITE = 'invite';
   const APP = 'app';
   const NOTICE = 'notice';
+  const WATCH_TITLES = 'watch_titles';
+  const WATCH_EPISODES = 'watch_episodes';
+  const WATCH_SOURCES = 'watch_sources';
+  const WATCH_VIDEOS = 'watch_videos';
 
   async function renderState(ctx, lang, state) {
     const session = getSession(ctx.from.id);
@@ -486,6 +492,75 @@ if (!bot) {
       return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
     }
 
+    if (state.id === WATCH_TITLES) {
+      const titles = session.watch?.titles || [];
+      if (!Array.isArray(titles) || titles.length === 0) {
+        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      const buttons = titles.slice(0, 10).map((it, idx) => ([
+        Markup.button.callback(`${idx + 1}`, `watch:title:${idx}`)
+      ]));
+
+      const lines = [
+        t(lang, 'watch_pick_title'),
+        '',
+        ...titles.slice(0, 10).map((it, idx) => `${idx + 1}. ${it.title || it.source || 'unknown'}`)
+      ];
+
+      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...buttons, navRow(lang)]));
+    }
+
+    if (state.id === WATCH_EPISODES) {
+      const episodes = session.watch?.episodes || [];
+      if (!Array.isArray(episodes) || episodes.length === 0) {
+        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      const slice = episodes.slice(0, 30);
+      const rows = slice.map((ep) => ([
+        Markup.button.callback(String(ep.num), `watch:ep:${String(ep.num)}`)
+      ]));
+
+      const lines = [
+        t(lang, 'watch_pick_episode'),
+        '',
+        ...slice.map((ep) => ep.title ? `${ep.num}. ${ep.title}` : String(ep.num))
+      ];
+
+      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+    }
+
+    if (state.id === WATCH_SOURCES) {
+      const sources = session.watch?.sources || [];
+      if (!Array.isArray(sources) || sources.length === 0) {
+        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      const slice = sources.slice(0, 10);
+      const rows = slice.map((s, idx) => ([
+        Markup.button.callback(String(s.title || `#${idx + 1}`), `watch:src:${idx}`)
+      ]));
+
+      return renderScreen(ctx, session, t(lang, 'watch_pick_source'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+    }
+
+    if (state.id === WATCH_VIDEOS) {
+      const videos = session.watch?.videos || [];
+      if (!Array.isArray(videos) || videos.length === 0) {
+        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
+      }
+
+      const rows = videos.slice(0, 10).map((v, idx) => {
+        const quality = v.quality ? `${v.quality}p` : 'link';
+        const label = `${idx + 1}. ${quality}${v.type ? ` ${v.type}` : ''}`;
+        // url button opens the link directly (best effort).
+        return [Markup.button.url(label, String(v.url))];
+      });
+
+      return renderScreen(ctx, session, t(lang, 'watch_pick_quality'), Markup.inlineKeyboard([...rows, navRow(lang)]));
+    }
+
     session.current = { id: HOME };
     return renderScreen(ctx, session, t(lang, 'menu_title'), mainMenuKeyboard(ctx, lang));
   }
@@ -536,6 +611,34 @@ if (!bot) {
     } catch (error) {
       session.search = null;
       return pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'search_failed', { error: error.message }) });
+    }
+  }
+
+  async function startWatchFlow(ctx, lang, uid) {
+    const session = getSession(ctx.from.id);
+    const anime = await repository.getCatalogItem(String(uid || '').trim());
+    if (!anime) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+      return;
+    }
+
+    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+    try {
+      const out = await watchSearch({ q: anime.title, limit: 5 });
+      const items = Array.isArray(out?.items) ? out.items : [];
+      session.watch = {
+        uid: anime.uid,
+        q: anime.title,
+        titles: items,
+        animeRef: '',
+        episodes: [],
+        sources: [],
+        videos: [],
+        episodeNum: ''
+      };
+      await pushAndGo(ctx, lang, { id: WATCH_TITLES });
+    } catch (error) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
     }
   }
 
@@ -946,6 +1049,100 @@ if (!bot) {
 
     await repository.addRecommendation(ctx.from, anime);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'recommended_saved', { title: anime.title }) });
+  });
+
+  bot.action(/^watch:start:(.+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const uid = String(ctx.match?.[1] || '').trim();
+    await startWatchFlow(ctx, lang, uid);
+  });
+
+  bot.action(/^watch:title:(\d+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+
+    const idx = Number(ctx.match?.[1] || -1);
+    const titles = session.watch?.titles;
+    if (!Array.isArray(titles) || idx < 0 || idx >= titles.length) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    const picked = titles[idx];
+    const animeRef = String(picked?.animeRef || '').trim();
+    if (!animeRef) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    session.watch.animeRef = animeRef;
+    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+
+    try {
+      const out = await watchEpisodes({ animeRef });
+      session.watch.episodes = Array.isArray(out?.episodes) ? out.episodes : [];
+      await pushAndGo(ctx, lang, { id: WATCH_EPISODES });
+    } catch (error) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
+    }
+  });
+
+  bot.action(/^watch:ep:(.+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+
+    const animeRef = String(session.watch?.animeRef || '').trim();
+    const episodeNum = String(ctx.match?.[1] || '').trim();
+    if (!animeRef || !episodeNum) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    session.watch.episodeNum = episodeNum;
+    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+
+    try {
+      const out = await watchSourcesForEpisode({ animeRef, episodeNum });
+      session.watch.sources = Array.isArray(out?.sources) ? out.sources : [];
+      await pushAndGo(ctx, lang, { id: WATCH_SOURCES });
+    } catch (error) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
+    }
+  });
+
+  bot.action(/^watch:src:(\d+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+
+    const idx = Number(ctx.match?.[1] || -1);
+    const sources = session.watch?.sources;
+    if (!Array.isArray(sources) || idx < 0 || idx >= sources.length) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    const src = sources[idx];
+    const sourceRef = String(src?.sourceRef || '').trim();
+    if (!sourceRef) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    session.watch.sourceRef = sourceRef;
+    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+
+    try {
+      const out = await watchVideos({ sourceRef });
+      session.watch.videos = Array.isArray(out?.videos) ? out.videos : [];
+      await pushAndGo(ctx, lang, { id: WATCH_VIDEOS });
+    } catch (error) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
+    }
   });
 
   bot.on('text', async (ctx) => {
