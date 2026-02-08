@@ -7,6 +7,13 @@ export const metadata = {
   description: 'Telegram Mini App dashboard'
 };
 
+// Ensures iOS safe-area env() variables work reliably (required for notch/status bar padding).
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover'
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
