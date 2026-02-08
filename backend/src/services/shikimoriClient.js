@@ -1,35 +1,8 @@
+import { BaseJsonApi } from './baseJsonApi.js';
+
 const SHIKIMORI_API = 'https://shikimori.one/api';
 const SHIKIMORI_WEB = 'https://shikimori.one';
 const SHIKIMORI_ORIGIN = new URL(SHIKIMORI_WEB).origin;
-
-const cache = new Map();
-
-function cacheGet(key) {
-  const hit = cache.get(key);
-  if (!hit) return null;
-  if (Date.now() > hit.expiresAt) {
-    cache.delete(key);
-    return null;
-  }
-  return hit.value;
-}
-
-function cacheSet(key, value, ttlMs = 6 * 60 * 60 * 1000) {
-  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
-function headers() {
-  // Shikimori expects a stable User-Agent.
-  const ua = (process.env.SHIKIMORI_USER_AGENT || '').trim() || 'anime-list-tg-bot';
-  return {
-    Accept: 'application/json',
-    'User-Agent': ua
-  };
-}
-
-function apiUrl(pathname) {
-  return `${SHIKIMORI_API}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
-}
 
 export function shikimoriAnimeLink(id) {
   return `${SHIKIMORI_WEB}/animes/${id}`;
@@ -43,90 +16,98 @@ export function shikimoriAssetUrl(pathname) {
   return `${SHIKIMORI_ORIGIN}${p}`;
 }
 
-function withQuery(pathname, query) {
-  const url = new URL(apiUrl(pathname));
-  for (const [k, v] of Object.entries(query || {})) {
-    if (v === undefined || v === null) continue;
-    url.searchParams.set(k, String(v));
+/**
+ * "Interface" for Shikimori API client (JS runtime, JSDoc contract).
+ * @typedef {Object} IShikimoriApi
+ * @property {(id: number|string) => Promise<any>} getAnimeById
+ * @property {(opts: {query: string, limit?: number, order?: string|null}) => Promise<any[]>} searchAnime
+ * @property {(id: number|string) => Promise<any[]>} getSimilarAnimeRecommendations
+ * @property {(id: number|string) => Promise<any[]>} getAnimeScreenshots
+ * @property {(id: number|string) => Promise<any[]>} getAnimeExternalLinks
+ * @property {(id: number|string) => Promise<any[]>} getAnimeVideos
+ * @property {(id: number|string) => Promise<any[]>} getAnimeRoles
+ * @property {(id: number|string) => Promise<any[]>} getAnimeTopics
+ * @property {(id: number|string) => Promise<any>} getCharacterById
+ */
+
+export class ShikimoriApi extends BaseJsonApi {
+  constructor() {
+    super({
+      baseUrl: SHIKIMORI_API,
+      name: 'Shikimori',
+      headers: () => {
+        // Shikimori expects a stable User-Agent.
+        const ua = (process.env.SHIKIMORI_USER_AGENT || '').trim() || 'anime-list-tg-bot';
+        return { 'User-Agent': ua };
+      }
+    });
   }
-  return url.toString();
-}
 
-async function requestJson(url, { ttlMs = 0 } = {}) {
-  const key = ttlMs ? `GET:${url}` : null;
-  if (key) {
-    const cached = cacheGet(key);
-    if (cached) return cached;
+  _toId(raw, label) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid ${label} id`);
+    return n;
   }
 
-  const res = await fetch(url, { headers: headers() });
-  if (!res.ok) {
-    throw new Error(`Shikimori request failed with ${res.status}`);
+  async getAnimeById(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}`, null, { ttlMs: 12 * 60 * 60 * 1000 });
   }
-  const json = await res.json().catch(() => null);
-  if (key) cacheSet(key, json, ttlMs);
-  return json;
+
+  async searchAnime({ query, limit = 5, order = null } = {}) {
+    const q = String(query || '').trim();
+    if (!q) return [];
+    const lim = Number(limit);
+    const safeLimit = Number.isFinite(lim) ? Math.min(50, Math.max(1, lim)) : 5;
+    return this.getJson('/animes', { search: q, limit: safeLimit, ...(order ? { order } : null) }, { ttlMs: 10 * 60 * 1000 });
+  }
+
+  async getSimilarAnimeRecommendations(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/similar`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
+
+  async getAnimeScreenshots(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/screenshots`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
+
+  async getAnimeExternalLinks(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/external_links`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
+
+  async getAnimeVideos(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/videos`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
+
+  async getAnimeRoles(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/roles`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
+
+  async getAnimeTopics(id) {
+    const animeId = this._toId(id, 'anime');
+    return this.getJson(`/animes/${animeId}/topics`, null, { ttlMs: 60 * 60 * 1000 });
+  }
+
+  async getCharacterById(id) {
+    const characterId = this._toId(id, 'character');
+    return this.getJson(`/characters/${characterId}`, null, { ttlMs: 24 * 60 * 60 * 1000 });
+  }
 }
 
-export async function getAnimeById(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}`), { ttlMs: 12 * 60 * 60 * 1000 });
-}
+/** @type {IShikimoriApi} */
+export const shikimoriApi = new ShikimoriApi();
 
-export async function searchAnime({ query, limit = 5, order = null } = {}) {
-  const q = String(query || '').trim();
-  if (!q) return [];
-  const lim = Number(limit);
-  const safeLimit = Number.isFinite(lim) ? Math.min(50, Math.max(1, lim)) : 5;
-
-  const url = withQuery('/animes', {
-    search: q,
-    limit: safeLimit,
-    ...(order ? { order } : null)
-  });
-  return requestJson(url, { ttlMs: 10 * 60 * 1000 });
-}
-
-// Extra endpoints mirrored from the Dart package API surface.
-export async function getSimilarAnimeRecommendations(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/similar`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
-
-export async function getAnimeScreenshots(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/screenshots`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
-
-export async function getAnimeExternalLinks(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/external_links`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
-
-export async function getAnimeVideos(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/videos`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
-
-export async function getAnimeRoles(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/roles`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
-
-export async function getAnimeTopics(id) {
-  const animeId = Number(id);
-  if (!Number.isFinite(animeId) || animeId <= 0) throw new Error('invalid anime id');
-  return requestJson(apiUrl(`/animes/${animeId}/topics`), { ttlMs: 60 * 60 * 1000 });
-}
-
-export async function getCharacterById(id) {
-  const characterId = Number(id);
-  if (!Number.isFinite(characterId) || characterId <= 0) throw new Error('invalid character id');
-  return requestJson(apiUrl(`/characters/${characterId}`), { ttlMs: 24 * 60 * 60 * 1000 });
-}
+// Backwards-compatible function exports (so callers can keep importing named functions).
+export const getAnimeById = (...args) => shikimoriApi.getAnimeById(...args);
+export const searchAnime = (...args) => shikimoriApi.searchAnime(...args);
+export const getSimilarAnimeRecommendations = (...args) => shikimoriApi.getSimilarAnimeRecommendations(...args);
+export const getAnimeScreenshots = (...args) => shikimoriApi.getAnimeScreenshots(...args);
+export const getAnimeExternalLinks = (...args) => shikimoriApi.getAnimeExternalLinks(...args);
+export const getAnimeVideos = (...args) => shikimoriApi.getAnimeVideos(...args);
+export const getAnimeRoles = (...args) => shikimoriApi.getAnimeRoles(...args);
+export const getAnimeTopics = (...args) => shikimoriApi.getAnimeTopics(...args);
+export const getCharacterById = (...args) => shikimoriApi.getCharacterById(...args);
