@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+if [ ! -d node_modules ]; then
+  echo "[start] installing dependencies..."
+  npm install
+fi
+
 echo "[start] running migrations..."
 node src/scripts/migrate.js
 
