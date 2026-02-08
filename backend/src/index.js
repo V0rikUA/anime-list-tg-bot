@@ -99,6 +99,9 @@ function buildMiniAppUrl(telegramUserId) {
   const url = new URL(config.webAppUrl);
   // Mini App no longer trusts uid for auth; this is only a debug fallback.
   url.searchParams.set('uid', String(telegramUserId));
+  if (config.miniAppAccessToken) {
+    url.searchParams.set('mt', String(config.miniAppAccessToken));
+  }
   return url.toString();
 }
 
