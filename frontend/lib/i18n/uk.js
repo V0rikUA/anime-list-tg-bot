@@ -50,6 +50,8 @@ export const uk = {
     watchFind: 'Знайти епізоди',
     watchRebind: 'Неправильне зіставлення?',
     watchPickTitle: 'Обери тайтл',
+    watchPrev: 'Назад',
+    watchNext: 'Далі',
     watchPickEpisode: 'Обери епізод',
     watchPickSource: 'Обери джерело',
     watchPickQuality: 'Обери якість',

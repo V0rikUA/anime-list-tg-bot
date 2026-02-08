@@ -209,7 +209,7 @@ export default function TitlePage() {
     return t('title.watchAuto');
   }
 
-  async function watchFindTitles() {
+  async function watchFindTitles(page = 1) {
     const initData = getInitData();
     if (!initData) {
       setWatchState((s) => ({ ...s, error: t('dashboard.errNoInitData') || 'No initData' }));
@@ -222,7 +222,7 @@ export default function TitlePage() {
     const response = await fetch('/api/webapp/watch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, uid, limit: 5 })
+      body: JSON.stringify({ initData, uid, limit: 5, page })
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
@@ -231,6 +231,9 @@ export default function TitlePage() {
 
     const items = Array.isArray(json.items) ? json.items : [];
     const map = json.map || null;
+    const currentPage = Number(json.page) || 1;
+    const pages = Number(json.pages) || 1;
+    const total = Number.isFinite(Number(json.total)) ? Number(json.total) : null;
 
     if (json.autoPick?.animeRef) {
       await watchPickTitle({ ...json.autoPick, _map: map }).catch(() => null);
@@ -243,6 +246,9 @@ export default function TitlePage() {
       step: 'titles',
       map,
       titles: items,
+      page: currentPage,
+      pages,
+      total,
       episodes: [],
       sources: [],
       videos: [],
@@ -492,12 +498,35 @@ export default function TitlePage() {
 
               {watchState.step === 'titles' && watchState.titles?.length ? (
                 <>
-                  <p className="meta">{t('title.watchPickTitle')}</p>
+                  <p className="meta">
+                    {t('title.watchPickTitle')}
+                    {watchState.pages > 1 ? ` · ${watchState.page}/${watchState.pages}` : ''}
+                  </p>
                   {watchState.titles.map((it, idx) => (
                     <button className="select" key={`${it.source}:${idx}`} type="button" onClick={() => watchPickTitle(it).catch(() => null)}>
                       {it.title || `${it.source}`}
                     </button>
                   ))}
+                  {watchState.pages > 1 ? (
+                    <div className="row">
+                      <button
+                        className="select"
+                        type="button"
+                        disabled={watchState.loading || watchState.page <= 1}
+                        onClick={() => watchFindTitles(Math.max(1, (watchState.page || 1) - 1)).catch(() => null)}
+                      >
+                        {t('title.watchPrev')}
+                      </button>
+                      <button
+                        className="select"
+                        type="button"
+                        disabled={watchState.loading || watchState.page >= watchState.pages}
+                        onClick={() => watchFindTitles((watchState.page || 1) + 1).catch(() => null)}
+                      >
+                        {t('title.watchNext')}
+                      </button>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 

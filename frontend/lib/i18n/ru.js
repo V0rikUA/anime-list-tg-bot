@@ -50,6 +50,8 @@ export const ru = {
     watchFind: 'Найти эпизоды',
     watchRebind: 'Неправильное связывание?',
     watchPickTitle: 'Выбери тайтл',
+    watchPrev: 'Назад',
+    watchNext: 'Далее',
     watchPickEpisode: 'Выбери эпизод',
     watchPickSource: 'Выбери источник',
     watchPickQuality: 'Выбери качество',

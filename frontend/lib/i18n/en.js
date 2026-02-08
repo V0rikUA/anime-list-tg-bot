@@ -50,6 +50,8 @@ export const en = {
     watchFind: 'Find episodes',
     watchRebind: 'Wrong match?',
     watchPickTitle: 'Pick a title',
+    watchPrev: 'Prev',
+    watchNext: 'Next',
     watchPickEpisode: 'Pick an episode',
     watchPickSource: 'Pick a source',
     watchPickQuality: 'Pick a quality',
