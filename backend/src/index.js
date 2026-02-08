@@ -499,24 +499,36 @@ if (!bot) {
       return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
     }
 
-    if (state.id === WATCH_TITLES) {
-      const titles = session.watch?.titles || [];
-      if (!Array.isArray(titles) || titles.length === 0) {
-        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
-      }
+	    if (state.id === WATCH_TITLES) {
+	      const titles = session.watch?.titles || [];
+	      if (!Array.isArray(titles) || titles.length === 0) {
+	        return renderScreen(ctx, session, t(lang, 'watch_failed'), Markup.inlineKeyboard([navRow(lang)]));
+	      }
 
-      const buttons = titles.slice(0, 10).map((it, idx) => ([
-        Markup.button.callback(`${idx + 1}`, `watch:title:${idx}`)
-      ]));
+	      const buttons = titles.slice(0, 10).map((it, idx) => ([
+	        Markup.button.callback(`${idx + 1}`, `watch:title:${idx}`)
+	      ]));
 
-      const lines = [
-        t(lang, 'watch_pick_title'),
-        '',
-        ...titles.slice(0, 10).map((it, idx) => `${idx + 1}. ${it.title || it.source || 'unknown'}`)
-      ];
+	      const page = Number(session.watch?.titlePage) || 1;
+	      const pages = Number(session.watch?.titlePages) || 1;
+	      const pager = [];
+	      if (pages > 1) {
+	        const prev = page > 1 ? Markup.button.callback('<', `watch:titles:page:${page - 1}`) : Markup.button.callback(' ', 'noop');
+	        const next = page < pages ? Markup.button.callback('>', `watch:titles:page:${page + 1}`) : Markup.button.callback(' ', 'noop');
+	        pager.push(prev, Markup.button.callback(`${page}/${pages}`, 'noop'), next);
+	      }
 
-      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard([...buttons, watchRebindRow(lang), navRow(lang)]));
-    }
+	      const lines = [
+	        t(lang, 'watch_pick_title'),
+	        '',
+	        ...titles.slice(0, 10).map((it, idx) => `${idx + 1}. ${it.title || it.source || 'unknown'}`)
+	      ];
+
+	      const rows = [...buttons];
+	      if (pager.length) rows.push(pager);
+	      rows.push(watchRebindRow(lang), navRow(lang));
+	      return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard(rows));
+	    }
 
     if (state.id === WATCH_EPISODES) {
       const episodes = session.watch?.episodes || [];
@@ -664,61 +676,68 @@ if (!bot) {
     }
   }
 
-  async function startWatchFlow(ctx, lang, uid) {
-    const session = getSession(ctx.from.id);
-    const anime = await repository.getCatalogItemLocalized(String(uid || '').trim(), lang);
-    if (!anime) {
-      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
-      return;
-    }
+	  async function startWatchFlow(ctx, lang, uid) {
+	    const session = getSession(ctx.from.id);
+	    const anime = await repository.getCatalogItemLocalized(String(uid || '').trim(), lang);
+	    if (!anime) {
+	      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
+	      return;
+	    }
 
-    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
-    try {
-      const map = await repository.getWatchMap(anime.uid);
+	    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+	    try {
+	      const q = String(anime.titleEn || anime.title || '').trim();
+	      const map = await repository.getWatchMap(anime.uid);
 
-      // If we have a stored binding, try to resolve it to a fresh animeRef and jump to episodes.
-      if (map?.watchSource && map?.watchUrl) {
-        // Search in watch sources by EN title for better matching.
-        const mappedOut = await watchSearch({ q: String(anime.titleEn || anime.title || '').trim(), source: map.watchSource, limit: 5 });
-        const mappedItems = Array.isArray(mappedOut?.items) ? mappedOut.items : [];
-        const match = mappedItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
-        if (match?.animeRef) {
-          session.watch = {
-            uid: anime.uid,
-            q: anime.title,
-            titles: mappedItems,
-            animeRef: String(match.animeRef),
-            episodes: [],
-            sources: [],
-            videos: [],
-            episodeNum: ''
-          };
+	      // If we have a stored binding, try to resolve it to a fresh animeRef and jump to episodes.
+	      if (map?.watchSource && map?.watchUrl) {
+	        // Search in watch sources by EN title for better matching.
+	        const mappedOut = await watchSearch({ q, source: map.watchSource, limit: 50, page: 1 });
+	        const mappedItems = Array.isArray(mappedOut?.items) ? mappedOut.items : [];
+	        const match = mappedItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
+	        if (match?.animeRef) {
+	          session.watch = {
+	            uid: anime.uid,
+	            q,
+	            titles: mappedItems.slice(0, 5),
+	            titlePage: 1,
+	            titlePages: Number(mappedOut?.pages) || 1,
+	            titleTotal: Number(mappedOut?.total) || mappedItems.length,
+	            animeRef: String(match.animeRef),
+	            episodes: [],
+	            sources: [],
+	            videos: [],
+	            episodeNum: ''
+	          };
 
           const epsOut = await watchEpisodes({ animeRef: String(match.animeRef) });
           session.watch.episodes = Array.isArray(epsOut?.episodes) ? epsOut.episodes : [];
           await pushAndGo(ctx, lang, { id: WATCH_EPISODES });
           return;
         }
-      }
+	      }
 
-      // Search in watch sources by EN title for better matching.
-      const out = await watchSearch({ q: String(anime.titleEn || anime.title || '').trim(), limit: 5 });
-      const items = Array.isArray(out?.items) ? out.items : [];
-      session.watch = {
-        uid: anime.uid,
-        q: anime.title,
-        titles: items,
-        animeRef: '',
-        episodes: [],
-        sources: [],
-        videos: [],
-        episodeNum: ''
-      };
-      await pushAndGo(ctx, lang, { id: WATCH_TITLES });
-    } catch (error) {
-      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
-    }
-  }
+	      // Search in watch sources by EN title for better matching.
+	      const out = await watchSearch({ q, limit: 5, page: 1 });
+	      const items = Array.isArray(out?.items) ? out.items : [];
+	      session.watch = {
+	        uid: anime.uid,
+	        q,
+	        titles: items,
+	        titlePage: Number(out?.page) || 1,
+	        titlePages: Number(out?.pages) || 1,
+	        titleTotal: Number(out?.total) || items.length,
+	        animeRef: '',
+	        episodes: [],
+	        sources: [],
+	        videos: [],
+	        episodeNum: ''
+	      };
+	      await pushAndGo(ctx, lang, { id: WATCH_TITLES });
+	    } catch (error) {
+	      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
+	    }
+	  }
 
   bot.start(async (ctx) => {
     await tryDeleteUserMessage(ctx);
@@ -1195,6 +1214,32 @@ if (!bot) {
       const out = await watchEpisodes({ animeRef });
       session.watch.episodes = Array.isArray(out?.episodes) ? out.episodes : [];
       await pushAndGo(ctx, lang, { id: WATCH_EPISODES });
+    } catch (error) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
+    }
+  });
+
+  bot.action(/^watch:titles:page:(\d+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+
+    const page = Number(ctx.match?.[1] || 1);
+    const q = String(session.watch?.q || '').trim();
+    if (!q || !Number.isFinite(page) || page <= 0) {
+      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
+      return;
+    }
+
+    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
+    try {
+      const out = await watchSearch({ q, limit: 5, page });
+      const items = Array.isArray(out?.items) ? out.items : [];
+      session.watch.titles = items;
+      session.watch.titlePage = Number(out?.page) || page;
+      session.watch.titlePages = Number(out?.pages) || 1;
+      session.watch.titleTotal = Number(out?.total) || items.length;
+      await pushAndGo(ctx, lang, { id: WATCH_TITLES });
     } catch (error) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: error?.message || t(lang, 'watch_failed') });
     }

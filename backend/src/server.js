@@ -281,6 +281,7 @@ export async function startApiServer({
     let q = String(request.body?.q || '').trim();
     const source = request.body?.source ? String(request.body.source) : '';
     const limit = Number(request.body?.limit || 5);
+    const page = Number(request.body?.page || 1);
 
     const user = await repository.getUserByTelegramId(validation.telegramUserId);
     if (!user) {
@@ -303,8 +304,16 @@ export async function startApiServer({
     const preferredSource = source || map?.watchSource || '';
 
     try {
-      const out = await watchSearch({ q, source: preferredSource || null, limit: Number.isFinite(limit) ? limit : 5 });
+      const safeLimit = Number.isFinite(limit) ? limit : 5;
+      const safePage = Number.isFinite(page) ? page : 1;
+      const out = await watchSearch({
+        q,
+        source: preferredSource || null,
+        limit: safeLimit,
+        page: safePage
+      });
       const items = Array.isArray(out?.items) ? out.items : [];
+      const total = Number.isFinite(Number(out?.total)) ? Number(out.total) : null;
 
       let autoPick = null;
       if (map?.watchUrl) {
@@ -315,7 +324,8 @@ export async function startApiServer({
       }
 
       // If no mapping exists yet and the search is unambiguous, bind automatically.
-      if (!map && uid && items.length === 1) {
+      const isUnambiguous = total !== null ? total === 1 : items.length === 1;
+      if (!map && uid && isUnambiguous && items.length === 1) {
         const only = items[0];
         const watchSource = String(only?.source || '').trim();
         const watchUrl = String(only?.url || '').trim();
@@ -338,6 +348,10 @@ export async function startApiServer({
       return reply.send({
         ok: true,
         items: ordered,
+        page: out?.page ?? safePage,
+        limit: out?.limit ?? safeLimit,
+        total: out?.total ?? null,
+        pages: out?.pages ?? null,
         map: map ? { uid, watchSource: map.watchSource, watchUrl: map.watchUrl, watchTitle: map.watchTitle } : null,
         autoPick
       });

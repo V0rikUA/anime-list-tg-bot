@@ -45,7 +45,7 @@ function requireWatchApiUrl() {
   return base.replace(/\/+$/, '');
 }
 
-export async function watchSearch({ q, source, limit = 5 }) {
+export async function watchSearch({ q, source, limit = 5, page = 1 }) {
   const base = requireWatchApiUrl();
   if (source && !isAllowedSource(source)) {
     const err = new Error('source not allowed');
@@ -57,6 +57,7 @@ export async function watchSearch({ q, source, limit = 5 }) {
   url.searchParams.set('q', String(q || '').trim());
   if (source) url.searchParams.set('source', String(source));
   url.searchParams.set('limit', String(limit));
+  url.searchParams.set('page', String(page));
   return fetchJson(url.toString(), { timeoutMs: 15000 });
 }
 
@@ -81,4 +82,3 @@ export async function watchVideos({ sourceRef }) {
   url.searchParams.set('sourceRef', String(sourceRef || '').trim());
   return fetchJson(url.toString(), { timeoutMs: 15000 });
 }
-
