@@ -117,7 +117,7 @@ async function translateText(text, targetLang) {
 
 /**
  * @param {unknown} uidRaw
- * @returns {{source: 'jikan'|'anilist', id: number, uid: string} | null}
+ * @returns {{source: 'jikan'|'shikimori'|'anilist', id: number, uid: string} | null}
  */
 function parseUid(uidRaw) {
   const uid = String(uidRaw || '').trim();
@@ -239,14 +239,16 @@ async function fetchShikimoriDetails(id) {
   if (!res.ok) throw new Error(`Shikimori failed: ${res.status}`);
   const a = await res.json().catch(() => null);
 
-  const titleEn = String(a?.name || '').trim();
-  const titleRu = String(a?.russian || '').trim();
+  const titleEn = String(a?.name || '').trim(); // Shikimori: `name`
+  const titleRu = String(a?.russian || '').trim(); // Shikimori: `russian`
   const title = titleEn || titleRu || `shikimori:${id}`;
 
   return {
     source: 'shikimori',
     externalId: String(id),
     title,
+    titleEn: titleEn || null,
+    titleRu: titleRu || null,
     episodes: a?.episodes ?? null,
     seasons: null,
     status: a?.status ?? null,
@@ -272,9 +274,11 @@ export async function GET(request) {
       ? await fetchJikanDetails(parsed.id)
       : (parsed.source === 'shikimori' ? await fetchShikimoriDetails(parsed.id) : await fetchAniListDetails(parsed.id));
 
-    const titleEn = String(details.title || '').trim();
+    const titleEn = String(details.titleEn || details.title || '').trim();
     const [titleRu, titleUk] = await Promise.all([
-      titleEn ? translateText(titleEn, 'ru') : Promise.resolve(''),
+      String(details.titleRu || '').trim()
+        ? Promise.resolve(String(details.titleRu).trim())
+        : (titleEn ? translateText(titleEn, 'ru') : Promise.resolve('')),
       titleEn ? translateText(titleEn, 'uk') : Promise.resolve('')
     ]);
     const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
