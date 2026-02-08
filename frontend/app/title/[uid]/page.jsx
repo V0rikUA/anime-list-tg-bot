@@ -97,8 +97,6 @@ export default function TitlePage() {
     return (video) => {
       const url = String(video?.url || '').trim();
       if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return false;
-      const headers = video?.headers && typeof video.headers === 'object' ? video.headers : null;
-      if (headers && Object.keys(headers).length) return false;
 
       const type = String(video?.type || '').toLowerCase();
       if (type.includes('m3u8') || type.includes('hls')) return true;
