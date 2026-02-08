@@ -52,6 +52,7 @@ export const uk = {
     watchPickEpisode: 'Обери епізод',
     watchPickSource: 'Обери джерело',
     watchPickQuality: 'Обери якість',
+    watchAuto: 'авто',
     watchPlay: 'Дивитися',
     watchPlayerTitle: 'Плеєр',
     watchPlayerFailed: 'Не вдалося запустити плеєр. Відкрий посилання.',

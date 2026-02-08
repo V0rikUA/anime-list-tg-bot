@@ -54,6 +54,11 @@ html[data-theme="dark"] body {
   gap: 14px;
 }
 
+.app.has-player {
+  /* Keep content scrollable above the bottom player. */
+  padding-bottom: calc(310px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -372,6 +377,49 @@ h1 {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.player-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0));
+}
+
+.player-dock-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.player-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+}
+
+.player-dock-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.player-dock-body {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {

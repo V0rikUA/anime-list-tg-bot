@@ -201,6 +201,13 @@ export default function TitlePage() {
     setPlayerError('');
   }
 
+  function qualityLabel(video) {
+    const q = video?.quality;
+    if (typeof q === 'number' && Number.isFinite(q) && q > 0) return `${q}p`;
+    if (typeof q === 'string' && String(q).trim()) return `${String(q).trim()}p`;
+    return t('title.watchAuto');
+  }
+
   async function watchFindTitles() {
     const initData = getInitData();
     if (!initData) {
@@ -320,7 +327,7 @@ export default function TitlePage() {
   }
 
   return (
-    <main className="app">
+    <main className={`app ${playerState.open ? 'has-player' : ''}`}>
       <header className="topbar">
         <button className="btn" type="button" onClick={() => router.push(mt ? `/?mt=${encodeURIComponent(mt)}` : '/')}>
           {t('title.back')}
@@ -441,17 +448,17 @@ export default function TitlePage() {
                     <div className="row" key={`${idx}:${v.url}`}>
                       {canInlinePlay(v) ? (
                         <button
-                          className="btn"
+                          className="select"
                           type="button"
                           onClick={() => {
                             setPlayerState({
                               open: true,
                               url: String(v.url || ''),
-                              label: `${v.quality ? `${v.quality}p` : ''}${v.type ? ` ${v.type}` : ''}`.trim()
+                              label: qualityLabel(v)
                             });
                           }}
                         >
-                          {t('title.watchPlay')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
+                          {qualityLabel(v)}
                         </button>
                       ) : null}
                     </div>
@@ -462,18 +469,10 @@ export default function TitlePage() {
           </section>
 
           {playerState.open ? (
-            <div
-              className="modal-backdrop"
-              role="dialog"
-              aria-modal="true"
-              aria-label={t('title.watchPlayerTitle')}
-              onClick={(e) => {
-                if (e.target === e.currentTarget) closePlayer();
-              }}
-            >
-              <div className="modal">
-                <div className="modal-head">
-                  <p className="modal-title">
+            <section className="player-dock" role="dialog" aria-modal="false" aria-label={t('title.watchPlayerTitle')}>
+              <div className="player-dock-inner">
+                <div className="player-dock-head">
+                  <p className="player-dock-title">
                     {t('title.watchPlayerTitle')}
                     {playerState.label ? ` · ${playerState.label}` : ''}
                   </p>
@@ -481,7 +480,8 @@ export default function TitlePage() {
                     {t('title.close')}
                   </button>
                 </div>
-                <div className="modal-body">
+
+                <div className="player-dock-body">
                   <video ref={videoRef} className="player" controls playsInline />
                   {playerError ? (
                     <>
@@ -495,7 +495,7 @@ export default function TitlePage() {
                   ) : null}
                 </div>
               </div>
-            </div>
+            </section>
           ) : null}
         </>
       ) : null}

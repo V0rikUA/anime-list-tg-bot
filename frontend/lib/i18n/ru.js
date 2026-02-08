@@ -52,6 +52,7 @@ export const ru = {
     watchPickEpisode: 'Выбери эпизод',
     watchPickSource: 'Выбери источник',
     watchPickQuality: 'Выбери качество',
+    watchAuto: 'авто',
     watchPlay: 'Смотреть',
     watchPlayerTitle: 'Плеер',
     watchPlayerFailed: 'Не удалось запустить плеер. Открой ссылку.',
