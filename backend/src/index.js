@@ -4,7 +4,7 @@ import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
 import { startApiServer } from './server.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
-import { searchAnime } from './services/animeSources.js';
+import { fetchAnimeDetails, searchAnime } from './services/animeSources.js';
 import { translateShort } from './services/translate.js';
 import {
   formatFriends,
@@ -605,10 +605,38 @@ if (!bot) {
       const results = await searchAnime(query, 5);
       // Persist i18n titles and show localized titles in bot UI immediately.
       const localized = await Promise.all(results.map(async (r) => {
-        const titleEn = String(r?.titleEn || r?.title || '').trim();
-        const titleRu = lang === 'ru' ? await translateShort(titleEn, 'ru').catch(() => '') : '';
-        const titleUk = lang === 'uk' ? await translateShort(titleEn, 'uk').catch(() => '') : '';
-        const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
+        // Prefer localized titles from sources (e.g. Shikimori `russian`) and
+        // only fall back to translation when a localized field is missing.
+        let titleEn = String(r?.titleEn || r?.title || '').trim();
+        let titleRu = String(r?.titleRu || '').trim();
+        let titleUk = String(r?.titleUk || '').trim();
+
+        // Defensive: if a source returned a short payload without i18n fields,
+        // try to enrich from the details endpoint (cached in animeSources).
+        if ((lang === 'ru' && !titleRu) || (lang === 'en' && !titleEn)) {
+          const uid = String(r?.uid || '').trim();
+          if (uid) {
+            const details = await fetchAnimeDetails(uid).catch(() => null);
+            if (details) {
+              if (!titleEn) titleEn = String(details?.titleEn || details?.title || '').trim();
+              if (!titleRu) titleRu = String(details?.titleRu || '').trim();
+              if (!titleUk) titleUk = String(details?.titleUk || '').trim();
+            }
+          }
+        }
+
+        if (lang === 'ru' && !titleRu) {
+          titleRu = await translateShort(titleEn, 'ru').catch(() => '');
+        }
+        if (lang === 'uk' && !titleUk) {
+          titleUk = await translateShort(titleEn, 'uk').catch(() => '');
+        }
+
+        const title =
+          lang === 'ru'
+            ? (titleRu || titleEn)
+            : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
+
         return {
           ...r,
           title,
