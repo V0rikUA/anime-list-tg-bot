@@ -454,15 +454,8 @@ export default function TitlePage() {
                           {t('title.watchPlay')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
                         </button>
                       ) : null}
-
-                      <button className="select" type="button" onClick={() => openLink(v.url)}>
-                        {t('title.watchOpen')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
-                      </button>
                     </div>
                   ))}
-                  {watchState.videos.some((v) => v.headers && Object.keys(v.headers).length) ? (
-                    <p className="meta">{t('title.watchBlocked')}</p>
-                  ) : null}
                 </>
               ) : null}
             </div>
@@ -493,9 +486,11 @@ export default function TitlePage() {
                   {playerError ? (
                     <>
                       <p className="meta">{playerError}</p>
-                      <button className="btn" type="button" onClick={() => openLink(playerState.url)}>
-                        {t('title.watchOpen')}
-                      </button>
+                      <p className="meta">
+                        <a className="link" href={playerState.url} target="_blank" rel="noreferrer">
+                          {playerState.url}
+                        </a>
+                      </p>
                     </>
                   ) : null}
                 </div>
