@@ -14,10 +14,19 @@ export function middleware(request) {
   if (url.searchParams.get('debug') === '1') return NextResponse.next();
   if (isLocalhost(request.headers.get('host'))) return NextResponse.next();
 
-  const ua = String(request.headers.get('user-agent') || '').toLowerCase();
-  const isTelegramWebView = ua.includes('telegram');
+  // Telegram often appends tgWebApp* params when opening Web Apps. This is more reliable than UA alone.
+  const hasTgParams =
+    url.searchParams.has('tgWebAppPlatform') ||
+    url.searchParams.has('tgWebAppVersion') ||
+    url.searchParams.has('tgWebAppThemeParams') ||
+    url.searchParams.has('tgWebAppStartParam') ||
+    url.searchParams.has('tgWebAppBotInline') ||
+    url.searchParams.has('startapp');
 
-  if (!isTelegramWebView) {
+  const ua = String(request.headers.get('user-agent') || '').toLowerCase();
+  const isTelegramWebView = ua.includes('telegram') || ua.includes('tg');
+
+  if (!hasTgParams && !isTelegramWebView) {
     return NextResponse.redirect(BOT_URL, 302);
   }
 
@@ -27,4 +36,3 @@ export function middleware(request) {
 export const config = {
   matcher: ['/mini/:path*']
 };
-
