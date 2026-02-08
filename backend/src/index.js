@@ -410,7 +410,7 @@ if (!bot) {
 
     if (state.id === ANIME_ACTIONS) {
       const uid = String(state.uid || '').trim();
-      const anime = uid ? await repository.getCatalogItem(uid) : null;
+      const anime = uid ? await repository.getCatalogItemLocalized(uid, lang) : null;
       if (!anime) {
         session.current = { id: HOME };
         return renderScreen(ctx, session, t(lang, 'unknown_id'), mainMenuKeyboard(ctx, lang));
@@ -708,10 +708,10 @@ if (!bot) {
     await pushAndGo(ctx, lang, { id: APP });
   });
 
-  async function resolveAnimeFromUid(uidRaw) {
+  async function resolveAnimeFromUid(uidRaw, lang) {
     const uid = String(uidRaw || '').trim();
     if (!uid) return null;
-    return repository.getCatalogItem(uid);
+    return repository.getCatalogItemLocalized(uid, lang);
   }
 
   bot.command('watched', async (ctx) => {
@@ -770,7 +770,7 @@ if (!bot) {
     await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
     const uid = extractArgs(ctx.message?.text || '', 'watch');
-    const anime = await resolveAnimeFromUid(uid);
+    const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
@@ -801,7 +801,7 @@ if (!bot) {
     await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
     const uid = extractArgs(ctx.message?.text || '', 'plan');
-    const anime = await resolveAnimeFromUid(uid);
+    const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
@@ -828,7 +828,7 @@ if (!bot) {
     await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
     const uid = extractArgs(ctx.message?.text || '', 'favorite');
-    const anime = await resolveAnimeFromUid(uid);
+    const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
@@ -855,7 +855,7 @@ if (!bot) {
     await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
     const uid = extractArgs(ctx.message?.text || '', 'recommend');
-    const anime = await resolveAnimeFromUid(uid);
+    const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
@@ -893,7 +893,7 @@ if (!bot) {
       return;
     }
 
-    const anime = await resolveAnimeFromUid(uid);
+    const anime = await resolveAnimeFromUid(uid, lang);
     const stats = await repository.getWatchStats(String(ctx.from.id), uid);
     const label = anime?.title || uid;
 
@@ -1037,7 +1037,7 @@ if (!bot) {
     const kind = String(ctx.match?.[1] || '');
     const uid = String(ctx.match?.[2] || '').trim();
 
-    const anime = await repository.getCatalogItem(uid);
+    const anime = await repository.getCatalogItemLocalized(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
