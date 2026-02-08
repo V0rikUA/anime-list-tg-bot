@@ -240,6 +240,58 @@ h1 {
   font-size: 12px;
 }
 
+.search-box {
+  display: grid;
+  gap: 8px;
+}
+
+.search-row {
+  display: grid;
+  gap: 8px;
+}
+
+.search-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 10px 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--muted);
+}
+
+.search-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.btn-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.btn-chip:active {
+  transform: scale(0.99);
+}
+
+.search-pager {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
 .badge {
   display: inline-block;
   margin-top: 6px;
