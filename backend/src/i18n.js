@@ -301,7 +301,7 @@ export function helpText(langRaw) {
 
   if (lang === 'ru') {
     lines.push(
-      '/search <название> - поиск аниме (Jikan + AniList)',
+      '/search <название> - поиск аниме (Jikan + Shikimori)',
       '/watch <uid> - добавить в просмотренное (+1 к счетчику)',
       '/watched - показать просмотренное (твои/друзей счетчики)',
       '/unwatch <uid> - удалить из просмотренного',
@@ -325,7 +325,7 @@ export function helpText(langRaw) {
     );
   } else if (lang === 'uk') {
     lines.push(
-      '/search <назва> - пошук аніме (Jikan + AniList)',
+      '/search <назва> - пошук аніме (Jikan + Shikimori)',
       '/watch <uid> - додати в переглянуте (+1 до лічильника)',
       '/watched - показати переглянуте (твої/друзів лічильники)',
       '/unwatch <uid> - видалити з переглянутого',
@@ -349,7 +349,7 @@ export function helpText(langRaw) {
     );
   } else {
     lines.push(
-      '/search <title> - search anime (Jikan + AniList)',
+      '/search <title> - search anime (Jikan + Shikimori)',
       '/watch <uid> - add anime to watched (+1 view count)',
       '/watched - show watched list with your/friends counters',
       '/unwatch <uid> - remove anime from watched',
