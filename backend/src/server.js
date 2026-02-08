@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { config } from './config.js';
+import { searchAnime, fetchAnimeDetails } from './services/animeSources.js';
 import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 /**
@@ -43,6 +44,31 @@ function extractInitDataMeta(initDataRaw) {
 function buildInviteLink(token) {
   if (!config.botUsername) return null;
   return `https://t.me/${config.botUsername}?start=${token}`;
+}
+
+function pickTitleByLang(item, langRaw) {
+  const lang = String(langRaw || '').trim().toLowerCase();
+  const en = String(item?.titleEn || item?.title_en || item?.title || '').trim();
+  const ru = String(item?.titleRu || item?.title_ru || '').trim();
+  const uk = String(item?.titleUk || item?.title_uk || '').trim();
+
+  if (lang === 'ru' && ru) return ru;
+  if (lang === 'uk' && uk) return uk;
+  return en || ru || uk || 'Unknown title';
+}
+
+const webappSearchCache = new Map();
+function cacheGet(cache, key) {
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (Date.now() > hit.expiresAt) {
+    cache.delete(key);
+    return null;
+  }
+  return hit.value;
+}
+function cacheSet(cache, key, value, ttlMs = 10 * 60 * 1000) {
+  cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 /**
@@ -272,6 +298,121 @@ export async function startApiServer({
 
     return validation;
   }
+
+  app.post('/api/webapp/search', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const q = String(request.body?.q || '').trim();
+    const limit = Number(request.body?.limit || 5);
+    const page = Number(request.body?.page || 1);
+    if (!q) return reply.code(400).send({ ok: false, error: 'q is required' });
+
+    const user = await repository.getUserByTelegramId(validation.telegramUserId);
+    if (!user) {
+      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    }
+
+    const safeLimit = Number.isFinite(limit) ? Math.min(10, Math.max(1, limit)) : 5;
+    const safePage = Number.isFinite(page) ? Math.max(1, Math.trunc(page)) : 1;
+
+    const cacheKey = `q:${q}`;
+    let all = cacheGet(webappSearchCache, cacheKey);
+    if (!all) {
+      // Fetch a larger batch once, then paginate in-memory for stable paging.
+      const results = await searchAnime(q, 50);
+      all = Array.isArray(results) ? results : [];
+      cacheSet(webappSearchCache, cacheKey, all);
+      // Best-effort: persist results so list actions can work even if user taps fast.
+      try {
+        await repository.upsertCatalog(all);
+      } catch {
+        // ignore
+      }
+    }
+
+    const total = all.length;
+    const pages = Math.max(1, Math.ceil(total / safeLimit));
+    const clampedPage = Math.min(pages, safePage);
+    const offset = (clampedPage - 1) * safeLimit;
+    const slice = all.slice(offset, offset + safeLimit);
+
+    // Prefer DB-localized titles (since DB may have translated UK, etc.)
+    const uids = slice.map((it) => String(it?.uid || '').trim()).filter(Boolean);
+    const localizedRows = uids.length ? await repository.getCatalogItemsLocalized(uids, user.lang || 'en') : [];
+    const byUid = new Map(localizedRows.map((r) => [String(r.uid), r]));
+
+    const items = slice.map((it) => {
+      const row = byUid.get(String(it.uid)) || it;
+      return {
+        uid: it.uid,
+        source: it.source,
+        url: it.url || null,
+        score: it.score ?? null,
+        episodes: it.episodes ?? null,
+        status: it.status ?? null,
+        imageSmall: row.imageSmall || it.imageSmall || null,
+        imageLarge: row.imageLarge || it.imageLarge || null,
+        titleEn: row.titleEn || it.titleEn || it.title || null,
+        titleRu: row.titleRu || it.titleRu || null,
+        titleUk: row.titleUk || it.titleUk || null,
+        title: pickTitleByLang(row, user.lang || 'en')
+      };
+    });
+
+    return reply.send({ ok: true, q, page: clampedPage, pages, total, limit: safeLimit, items });
+  });
+
+  app.post('/api/webapp/list/add', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    const listType = String(request.body?.listType || '').trim().toLowerCase();
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+    if (!listType) return reply.code(400).send({ ok: false, error: 'listType is required' });
+    if (!['planned', 'favorite', 'watched'].includes(listType)) {
+      return reply.code(400).send({ ok: false, error: 'invalid listType' });
+    }
+
+    await repository.ensureUser({ id: validation.telegramUserId });
+
+    let anime = await repository.getCatalogItem(uid);
+    if (!anime) {
+      const details = await fetchAnimeDetails(uid).catch(() => null);
+      if (details) {
+        await repository.upsertCatalog([details]).catch(() => null);
+        anime = await repository.getCatalogItem(uid);
+      }
+    }
+    if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
+
+    await repository.addToTrackedList(validation.user || { id: validation.telegramUserId }, listType, anime);
+    return reply.send({ ok: true });
+  });
+
+  app.post('/api/webapp/recommend/add', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+
+    await repository.ensureUser({ id: validation.telegramUserId });
+
+    let anime = await repository.getCatalogItem(uid);
+    if (!anime) {
+      const details = await fetchAnimeDetails(uid).catch(() => null);
+      if (details) {
+        await repository.upsertCatalog([details]).catch(() => null);
+        anime = await repository.getCatalogItem(uid);
+      }
+    }
+    if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
+
+    await repository.addRecommendation(validation.user || { id: validation.telegramUserId }, anime);
+    return reply.send({ ok: true });
+  });
 
   app.post('/api/webapp/watch/search', async (request, reply) => {
     const validation = validateInitDataOrReply(request, reply);

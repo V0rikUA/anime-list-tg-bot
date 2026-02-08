@@ -395,6 +395,14 @@ export class AnimeRepository {
     return { ...item, title: pickTitleByLang(item, lang) };
   }
 
+  async getCatalogItemsLocalized(uidsRaw, lang) {
+    const uids = Array.isArray(uidsRaw) ? uidsRaw.map((u) => String(u || '').trim()).filter(Boolean) : [];
+    if (!uids.length) return [];
+    const rows = await this.db('anime').whereIn('uid', uids);
+    const items = rows.map((row) => mapAnimeRow(row));
+    return items.map((it) => ({ ...it, title: pickTitleByLang(it, lang) }));
+  }
+
   async getWatchMap(uidRaw) {
     const uid = String(uidRaw || '').trim();
     if (!uid) return null;
