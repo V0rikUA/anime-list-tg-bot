@@ -123,6 +123,16 @@ h1 {
   transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
+.invite-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.invite-link {
+  word-break: break-word;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -4,6 +4,7 @@ import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
+import { config } from './config.js';
 
 /**
  * Extracts safe metadata from Telegram initData string for debugging.
@@ -36,6 +37,11 @@ function extractInitDataMeta(initDataRaw) {
     authDate: Number.isFinite(authDate) ? authDate : null,
     userId
   };
+}
+
+function buildInviteLink(token) {
+  if (!config.botUsername) return null;
+  return `https://t.me/${config.botUsername}?start=${token}`;
 }
 
 /**
@@ -197,6 +203,33 @@ export async function startApiServer({
       telegramUserId: validation.telegramUserId,
       ...dashboard
     };
+  });
+
+  app.post('/api/webapp/invite', async (request, reply) => {
+    const initData = request.body?.initData;
+    if (typeof initData !== 'string' || !initData.trim()) {
+      return reply.code(400).send({ ok: false, error: 'initData is required' });
+    }
+
+    const validation = validateTelegramWebAppInitData({
+      initData,
+      botToken: telegramToken,
+      maxAgeSec: webAppAuthMaxAgeSec
+    });
+
+    if (!validation.ok) {
+      const meta = extractInitDataMeta(initData);
+      app.log.warn({ error: validation.error, meta }, 'telegram initData validation failed (webapp invite)');
+      return reply.code(401).send(validation);
+    }
+
+    const token = await repository.createInviteToken(validation.user || { id: validation.telegramUserId });
+    const link = buildInviteLink(token);
+    if (!link) {
+      return reply.code(500).send({ ok: false, error: 'TELEGRAM_BOT_USERNAME is not set' });
+    }
+
+    return { ok: true, token, link };
   });
 
   // Client-side diagnostic logs from the Mini App (optional).

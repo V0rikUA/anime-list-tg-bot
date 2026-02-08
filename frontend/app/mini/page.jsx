@@ -44,6 +44,8 @@ export default function MiniAppDashboard() {
 
   const [metaText, setMetaText] = useState(t('dashboard.loadingProfile'));
   const [data, setData] = useState(null);
+  const [inviteStatus, setInviteStatus] = useState('');
+  const [inviteLink, setInviteLink] = useState('');
 
   useEffect(() => {
     setMetaText(t('dashboard.loadingProfile'));
@@ -105,6 +107,43 @@ export default function MiniAppDashboard() {
 
   function onThemeChange(e) {
     dispatch(setTheme(e.target.value));
+  }
+
+  async function copyInviteLink() {
+    setInviteStatus('');
+
+    const tg = window.Telegram?.WebApp;
+    const initData = typeof tg?.initData === 'string' ? tg.initData.trim() : '';
+    if (!initData) {
+      setInviteStatus(t('dashboard.errNoInitData'));
+      return;
+    }
+
+    const response = await fetch('/api/webapp/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData })
+    });
+
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || t('dashboard.errTelegramValidation'));
+    }
+
+    const link = String(json.link || '').trim();
+    if (!link) {
+      throw new Error('Invite link is empty');
+    }
+
+    setInviteLink(link);
+
+    try {
+      await navigator.clipboard.writeText(link);
+      setInviteStatus(t('dashboard.inviteCopied'));
+    } catch (e) {
+      // Clipboard API can be restricted in some WebViews.
+      setInviteStatus(t('dashboard.inviteCopyFailed'));
+    }
   }
 
   function renderAnimeList(list, withWatchStats) {
@@ -254,9 +293,27 @@ export default function MiniAppDashboard() {
 
       <section className="card invite-box">
         <p className="section-title">{t('dashboard.inviteTitle')}</p>
-        <p className="meta">
-          {t('dashboard.inviteHint1')} <code>/invite</code>, {t('dashboard.inviteHint2')} <code>/join &lt;token&gt;</code>.
-        </p>
+        <p className="meta">{t('dashboard.inviteHint')}</p>
+        <div className="invite-actions">
+          <button
+            className="btn"
+            type="button"
+            onClick={() => {
+              copyInviteLink().catch((error) => {
+                console.error(error);
+                setInviteStatus(error.message || t('dashboard.inviteCopyFailed'));
+              });
+            }}
+          >
+            {t('dashboard.inviteCopy')}
+          </button>
+          {inviteStatus ? <p className="meta">{inviteStatus}</p> : null}
+          {inviteLink ? (
+            <p className="meta invite-link">
+              <a className="link" href={inviteLink} target="_blank" rel="noreferrer">{inviteLink}</a>
+            </p>
+          ) : null}
+        </div>
       </section>
     </main>
   );

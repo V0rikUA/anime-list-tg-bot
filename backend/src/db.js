@@ -217,17 +217,37 @@ export class AnimeRepository {
 
   async createInviteToken(telegramUser) {
     const user = await this.ensureUser(telegramUser);
-    const token = crypto.randomBytes(16).toString('hex');
+    const existing = await this.db('friend_invites')
+      .where({ inviter_user_id: user.id })
+      .first();
 
-    await this.db('friend_invites').insert({
-      inviter_user_id: user.id,
-      token
-    }).onConflict('inviter_user_id').merge({
-      token,
-      created_at: this.db.fn.now()
-    });
+    // Stable per-user token (unique per inviter, not per request).
+    if (existing?.token) {
+      return existing.token;
+    }
 
-    return token;
+    // Extremely unlikely to hit token collisions, but keep it safe.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const token = crypto.randomBytes(16).toString('hex');
+      try {
+        await this.db('friend_invites').insert({
+          inviter_user_id: user.id,
+          token
+        });
+        return token;
+      } catch (error) {
+        // If inviter row was created concurrently, reuse it.
+        const invite = await this.db('friend_invites')
+          .where({ inviter_user_id: user.id })
+          .first();
+        if (invite?.token) {
+          return invite.token;
+        }
+        // Otherwise retry token generation (e.g. rare token unique violation).
+      }
+    }
+
+    throw new Error('Failed to generate invite token');
   }
 
   async addFriendByToken(telegramUser, tokenRaw) {
