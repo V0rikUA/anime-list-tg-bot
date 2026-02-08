@@ -3,16 +3,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import knex from 'knex';
 import { fetchAnimeDetails } from './services/animeSources.js';
+import { normalizeLang, translateShort } from './services/translate.js';
 
 const TRACK_LIST_TYPES = new Set(['watched', 'planned', 'favorite']);
 const SUPPORTED_LANGS = new Set(['en', 'ru', 'uk']);
-
-function normalizeLang(raw) {
-  const value = String(raw || '').toLowerCase();
-  if (value.startsWith('ru')) return 'ru';
-  if (value.startsWith('uk')) return 'uk';
-  return 'en';
-}
 
 function normalizeStoredLang(raw) {
   const lang = normalizeLang(raw);
@@ -25,6 +19,9 @@ function normalizeStoredLang(raw) {
  * @property {string|null} source
  * @property {string|null} externalId
  * @property {string} title
+ * @property {string|null} titleEn
+ * @property {string|null} titleRu
+ * @property {string|null} titleUk
  * @property {number|null} episodes
  * @property {number|null} score
  * @property {string|null} status
@@ -40,11 +37,20 @@ function normalizeStoredLang(raw) {
  * @returns {AnimeRow}
  */
 function normalizeAnime(item) {
+  const titleFallback = String(item?.title || '').trim();
+  const titleEn = String(item?.titleEn ?? '').trim() || titleFallback;
+  const titleRu = String(item?.titleRu ?? '').trim();
+  const titleUk = String(item?.titleUk ?? '').trim();
+
   return {
     uid: String(item.uid),
     source: item.source || null,
     externalId: item.externalId === undefined || item.externalId === null ? null : String(item.externalId),
-    title: item.title || 'Unknown title',
+    // Keep legacy `title` aligned with EN for stability.
+    title: titleEn || 'Unknown title',
+    titleEn: titleEn || null,
+    titleRu: titleRu || null,
+    titleUk: titleUk || null,
     episodes: item.episodes ?? null,
     score: item.score ?? null,
     status: item.status ?? null,
@@ -66,6 +72,9 @@ function mapAnimeRow(row) {
     source: row.source,
     externalId: row.external_id,
     title: row.title,
+    titleEn: row.title_en ?? null,
+    titleRu: row.title_ru ?? null,
+    titleUk: row.title_uk ?? null,
     episodes: row.episodes,
     score: row.score,
     status: row.status,
@@ -80,6 +89,36 @@ function mapAnimeRow(row) {
 
 function safeFriendName(row) {
   return row.username || row.first_name || `user_${row.telegram_id}`;
+}
+
+function pickTitleByLang(anime, langRaw) {
+  const lang = normalizeStoredLang(langRaw);
+  const en = String(anime?.titleEn || anime?.title_en || anime?.title || '').trim();
+  const ru = String(anime?.titleRu || anime?.title_ru || '').trim();
+  const uk = String(anime?.titleUk || anime?.title_uk || '').trim();
+
+  if (lang === 'ru' && ru) return ru;
+  if (lang === 'uk' && uk) return uk;
+  return en || ru || uk || 'Unknown title';
+}
+
+async function ensureTitlesI18n(animeRaw) {
+  const anime = normalizeAnime(animeRaw);
+  const base = String(anime.titleEn || anime.title || '').trim();
+  if (!base) return anime;
+
+  const [ru, uk] = await Promise.all([
+    anime.titleRu ? Promise.resolve(anime.titleRu) : translateShort(base, 'ru').catch(() => ''),
+    anime.titleUk ? Promise.resolve(anime.titleUk) : translateShort(base, 'uk').catch(() => '')
+  ]);
+
+  return {
+    ...anime,
+    title: base,
+    titleEn: anime.titleEn || base,
+    titleRu: anime.titleRu || (ru || null),
+    titleUk: anime.titleUk || (uk || null)
+  };
 }
 
 export class AnimeRepository {
@@ -305,13 +344,17 @@ export class AnimeRepository {
       return;
     }
 
-    const rows = items.map((item) => {
-      const normalized = normalizeAnime(item);
+    const normalizedItems = await Promise.all(items.map((item) => ensureTitlesI18n(item)));
+
+    const rows = normalizedItems.map((normalized) => {
       return {
         uid: normalized.uid,
         source: normalized.source,
         external_id: normalized.externalId,
         title: normalized.title,
+        title_en: normalized.titleEn,
+        title_ru: normalized.titleRu,
+        title_uk: normalized.titleUk,
         episodes: normalized.episodes,
         score: normalized.score,
         status: normalized.status,
@@ -327,6 +370,9 @@ export class AnimeRepository {
       source: this.db.raw('excluded.source'),
       external_id: this.db.raw('excluded.external_id'),
       title: this.db.raw('excluded.title'),
+      title_en: this.db.raw('excluded.title_en'),
+      title_ru: this.db.raw('excluded.title_ru'),
+      title_uk: this.db.raw('excluded.title_uk'),
       episodes: this.db.raw('excluded.episodes'),
       score: this.db.raw('excluded.score'),
       status: this.db.raw('excluded.status'),
@@ -341,6 +387,12 @@ export class AnimeRepository {
   async getCatalogItem(uid) {
     const row = await this.db('anime').where({ uid: String(uid) }).first();
     return row ? mapAnimeRow(row) : null;
+  }
+
+  async getCatalogItemLocalized(uid, lang) {
+    const item = await this.getCatalogItem(uid);
+    if (!item) return null;
+    return { ...item, title: pickTitleByLang(item, lang) };
   }
 
   async addToTrackedList(telegramUser, listType, anime) {
@@ -431,6 +483,9 @@ export class AnimeRepository {
         'a.source',
         'a.external_id',
         'a.title',
+        'a.title_en',
+        'a.title_ru',
+        'a.title_uk',
         'a.episodes',
         'a.score',
         'a.status',
@@ -442,7 +497,11 @@ export class AnimeRepository {
         'l.watch_count'
       );
 
-    return rows.map(mapAnimeRow);
+    const lang = user.lang || 'en';
+    return rows.map((r) => {
+      const mapped = mapAnimeRow(r);
+      return { ...mapped, title: pickTitleByLang(mapped, lang) };
+    });
   }
 
   async addRecommendation(telegramUser, anime) {
@@ -487,6 +546,9 @@ export class AnimeRepository {
         'a.source',
         'a.external_id',
         'a.title',
+        'a.title_en',
+        'a.title_ru',
+        'a.title_uk',
         'a.episodes',
         'a.score',
         'a.status',
@@ -497,7 +559,11 @@ export class AnimeRepository {
         'r.created_at as added_at'
       );
 
-    return rows.map(mapAnimeRow);
+    const lang = user.lang || 'en';
+    return rows.map((r) => {
+      const mapped = mapAnimeRow(r);
+      return { ...mapped, title: pickTitleByLang(mapped, lang) };
+    });
   }
 
   async getRecommendationsFromFriends(telegramId, limit = 25) {
@@ -517,6 +583,9 @@ export class AnimeRepository {
         'a.source',
         'a.external_id',
         'a.title',
+        'a.title_en',
+        'a.title_ru',
+        'a.title_uk',
         'a.episodes',
         'a.score',
         'a.status',
@@ -538,7 +607,10 @@ export class AnimeRepository {
           uid: row.uid,
           source: row.source,
           externalId: row.external_id,
-          title: row.title,
+          title: pickTitleByLang(row, user.lang || 'en'),
+          titleEn: row.title_en ?? null,
+          titleRu: row.title_ru ?? null,
+          titleUk: row.title_uk ?? null,
           episodes: row.episodes,
           score: row.score,
           status: row.status,
@@ -728,23 +800,30 @@ export class AnimeRepository {
   }
 
   async upsertAnimeInTransaction(trx, anime) {
+    const normalized = await ensureTitlesI18n(anime);
     await trx('anime').insert({
-      uid: anime.uid,
-      source: anime.source,
-      external_id: anime.externalId,
-      title: anime.title,
-      episodes: anime.episodes,
-      score: anime.score,
-      status: anime.status,
-      url: anime.url,
-      image_small: anime.imageSmall,
-      image_large: anime.imageLarge,
-      synopsis_en: anime.synopsisEn,
+      uid: normalized.uid,
+      source: normalized.source,
+      external_id: normalized.externalId,
+      title: normalized.title,
+      title_en: normalized.titleEn,
+      title_ru: normalized.titleRu,
+      title_uk: normalized.titleUk,
+      episodes: normalized.episodes,
+      score: normalized.score,
+      status: normalized.status,
+      url: normalized.url,
+      image_small: normalized.imageSmall,
+      image_large: normalized.imageLarge,
+      synopsis_en: normalized.synopsisEn,
       updated_at: this.db.fn.now()
     }).onConflict('uid').merge({
       source: this.db.raw('excluded.source'),
       external_id: this.db.raw('excluded.external_id'),
       title: this.db.raw('excluded.title'),
+      title_en: this.db.raw('excluded.title_en'),
+      title_ru: this.db.raw('excluded.title_ru'),
+      title_uk: this.db.raw('excluded.title_uk'),
       episodes: this.db.raw('excluded.episodes'),
       score: this.db.raw('excluded.score'),
       status: this.db.raw('excluded.status'),
@@ -761,12 +840,15 @@ export class AnimeRepository {
    * @param {any} animeRaw
    */
   async upsertAnime(animeRaw) {
-    const anime = normalizeAnime(animeRaw);
+    const anime = await ensureTitlesI18n(animeRaw);
     await this.db('anime').insert({
       uid: anime.uid,
       source: anime.source,
       external_id: anime.externalId,
       title: anime.title,
+      title_en: anime.titleEn,
+      title_ru: anime.titleRu,
+      title_uk: anime.titleUk,
       episodes: anime.episodes,
       score: anime.score,
       status: anime.status,
@@ -779,6 +861,9 @@ export class AnimeRepository {
       source: this.db.raw('excluded.source'),
       external_id: this.db.raw('excluded.external_id'),
       title: this.db.raw('excluded.title'),
+      title_en: this.db.raw('excluded.title_en'),
+      title_ru: this.db.raw('excluded.title_ru'),
+      title_uk: this.db.raw('excluded.title_uk'),
       episodes: this.db.raw('excluded.episodes'),
       score: this.db.raw('excluded.score'),
       status: this.db.raw('excluded.status'),

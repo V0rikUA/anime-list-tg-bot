@@ -94,7 +94,7 @@ async function translateText(text, targetLang) {
   // Unofficial endpoint. If it fails, we fall back to English.
   const url = new URL('https://translate.googleapis.com/translate_a/single');
   url.searchParams.set('client', 'gtx');
-  url.searchParams.set('sl', 'en');
+  url.searchParams.set('sl', 'auto');
   url.searchParams.set('tl', lang);
   url.searchParams.set('dt', 't');
   url.searchParams.set('q', t);
@@ -233,6 +233,13 @@ export async function GET(request) {
       ? await fetchJikanDetails(parsed.id)
       : await fetchAniListDetails(parsed.id);
 
+    const titleEn = String(details.title || '').trim();
+    const [titleRu, titleUk] = await Promise.all([
+      titleEn ? translateText(titleEn, 'ru') : Promise.resolve(''),
+      titleEn ? translateText(titleEn, 'uk') : Promise.resolve('')
+    ]);
+    const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
+
     const synopsis = details.synopsisEn ? await translateText(details.synopsisEn, lang) : '';
 
     return Response.json({
@@ -240,6 +247,10 @@ export async function GET(request) {
       uid: parsed.uid,
       lang,
       ...details,
+      title,
+      titleEn: titleEn || null,
+      titleRu: titleRu || null,
+      titleUk: titleUk || null,
       synopsis
     });
   } catch (error) {
