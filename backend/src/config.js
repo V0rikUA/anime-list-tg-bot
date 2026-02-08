@@ -1,7 +1,18 @@
 import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 
+// Load env vars in both setups:
+// - running from repo root (./.env)
+// - running via `cd backend && npm run dev` (dotenv would otherwise look for backend/.env)
 dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const rootEnvPath = path.resolve(__dirname, '..', '..', '.env');
+if (fs.existsSync(rootEnvPath)) {
+  dotenv.config({ path: rootEnvPath });
+}
 
 /**
  * @param {string} name
