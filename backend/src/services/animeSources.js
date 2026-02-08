@@ -1,6 +1,6 @@
+import { getAnimeById as shikiGetAnimeById, searchAnime as shikiSearchAnime, shikimoriAnimeLink, shikimoriAssetUrl } from './shikimoriClient.js';
+
 const JIKAN_URL = 'https://api.jikan.moe/v4/anime';
-const SHIKIMORI_API = 'https://shikimori.one/api';
-const SHIKIMORI_WEB = 'https://shikimori.one';
 const ANILIST_URL = 'https://graphql.anilist.co'; // legacy (kept for existing anilist:<id> rows)
 
 const detailsCache = new Map();
@@ -97,27 +97,8 @@ async function fetchJikanDetails(id) {
   });
 }
 
-function shikimoriHeaders() {
-  // Shikimori expects a User-Agent. Keep a stable default and allow override via env.
-  const ua = (process.env.SHIKIMORI_USER_AGENT || '').trim() || 'anime-list-tg-bot';
-  return {
-    Accept: 'application/json',
-    'User-Agent': ua
-  };
-}
-
-function shikimoriUrl(pathname) {
-  return `${SHIKIMORI_API}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
-}
-
-function shikimoriAnimeLink(id) {
-  return `${SHIKIMORI_WEB}/animes/${id}`;
-}
-
 async function fetchShikimoriDetails(id) {
-  const response = await fetch(shikimoriUrl(`/animes/${id}`), { headers: shikimoriHeaders() });
-  if (!response.ok) throw new Error(`Shikimori request failed with ${response.status}`);
-  const anime = await response.json().catch(() => null);
+  const anime = await shikiGetAnimeById(id);
 
   const titleEn = String(anime?.name || '').trim();
   const titleRu = String(anime?.russian || '').trim();
@@ -136,8 +117,8 @@ async function fetchShikimoriDetails(id) {
     score,
     status: anime?.status ?? null,
     url: shikimoriAnimeLink(id),
-    imageSmall: anime?.image?.preview ? `${SHIKIMORI_WEB}${anime.image.preview}` : null,
-    imageLarge: anime?.image?.original ? `${SHIKIMORI_WEB}${anime.image.original}` : null,
+    imageSmall: shikimoriAssetUrl(anime?.image?.preview) || null,
+    imageLarge: shikimoriAssetUrl(anime?.image?.original) || null,
     synopsisEn: anime?.description ? String(anime.description) : null
   });
 }
@@ -229,17 +210,7 @@ async function searchJikan(query, limit) {
  * @returns {Promise<AnimeSearchResult[]>}
  */
 async function searchShikimori(query, limit) {
-  const url = new URL(shikimoriUrl('/animes'));
-  url.searchParams.set('search', query);
-  url.searchParams.set('limit', String(limit));
-
-  const response = await fetch(url, { headers: shikimoriHeaders() });
-  if (!response.ok) {
-    throw new Error(`Shikimori request failed with ${response.status}`);
-  }
-
-  const data = await response.json().catch(() => null);
-  const items = Array.isArray(data) ? data : [];
+  const items = await shikiSearchAnime({ query, limit });
 
   return items.map((anime) => {
     const id = Number(anime?.id);
@@ -257,8 +228,8 @@ async function searchShikimori(query, limit) {
       score: scoreToNumber(anime?.score),
       status: anime?.status ?? null,
       url: shikimoriAnimeLink(id),
-      imageSmall: anime?.image?.preview ? `${SHIKIMORI_WEB}${anime.image.preview}` : null,
-      imageLarge: anime?.image?.original ? `${SHIKIMORI_WEB}${anime.image.original}` : null,
+      imageSmall: shikimoriAssetUrl(anime?.image?.preview) || null,
+      imageLarge: shikimoriAssetUrl(anime?.image?.original) || null,
       synopsisEn: anime?.description ? String(anime.description) : null
     });
   });
