@@ -5,8 +5,8 @@ metadata:
   namespace: anime-bot
 data:
   # Public URLs
-  WEB_APP_URL: "https://example.com/"
-  API_BASE_URL: "https://example.com"
+  WEB_APP_URL: "https://mini.indexforge.site/"
+  API_BASE_URL: "https://api.indexforge.site"
 
   # Service ports
   GATEWAY_PORT: "8080"

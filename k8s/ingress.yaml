@@ -8,10 +8,12 @@ metadata:
 spec:
   tls:
     - hosts:
-        - example.com
+        - mini.indexforge.site
+        - api.indexforge.site
       secretName: tls-secret
   rules:
-    - host: example.com
+    # Mini App UI + same-origin /api proxy
+    - host: mini.indexforge.site
       http:
         paths:
           - path: /api
@@ -35,4 +37,14 @@ spec:
                 name: frontend
                 port:
                   number: 3000
-
+    # Optional dedicated API host (gateway only)
+    - host: api.indexforge.site
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gateway
+                port:
+                  number: 8080
