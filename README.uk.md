@@ -42,6 +42,27 @@ docker compose --profile frontend up --build
 
 Gateway: `http://localhost:8080`
 
+## Прод (Debian VM + Docker + Caddy, сабдомени)
+
+У репозиторії є конфіг Caddy для сабдоменів:
+- `mini.indexforge.site` -> UI Mini App (`/`) та same-origin `/api/*` + `/webhook` на gateway
+- `api.indexforge.site` -> gateway (усі шляхи)
+
+Кроки:
+1. Налаштуй DNS A записи `mini.indexforge.site` і `api.indexforge.site` на IP віртуалки.
+2. Відкрий порти `80` і `443` у firewall.
+3. У `.env` задай:
+   - `WEB_APP_URL=https://mini.indexforge.site/`
+   - `TELEGRAM_WEBHOOK_URL=https://api.indexforge.site/webhook`
+   - `TELEGRAM_WEBHOOK_SECRET=<random string>` (рекомендовано)
+4. Запусти стек (назовні публікує порти лише Caddy):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml --profile frontend up -d --build
+```
+
+TLS сертифікати Caddy отримає автоматично та збереже в Docker volume.
+
 ## Мікросервіси (MVP) + Gateway
 
 У репозиторії використовується мікросервісна схема (тільки HTTP, без брокера):

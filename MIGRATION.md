@@ -28,6 +28,24 @@ Endpoints:
 - Webapp service: internal (health: `http://webapp:8080/healthz`)
 - Watch service: internal (via gateway: `http://localhost:8080/api/watch/v1/health`)
 
+## Production (Debian VM + Docker + Caddy)
+
+For subdomain-based routing on a VM, use the included `docker-compose.proxy.yml` + `Caddyfile`.
+
+Example:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml --profile frontend up -d --build
+```
+
+Expected DNS:
+- `mini.indexforge.site` -> VM IP (Mini App UI + `/api/*` + `/webhook`)
+- `api.indexforge.site` -> VM IP (gateway only)
+
+Env highlights:
+- `WEB_APP_URL=https://mini.indexforge.site/`
+- `TELEGRAM_WEBHOOK_URL=https://api.indexforge.site/webhook`
+- `TELEGRAM_WEBHOOK_SECRET=<random string>` (recommended)
+
 ## Switching Mini App to gateway
 In micro mode, `frontend` receives `BACKEND_URL=http://gateway:8080` (compose override).
 No code changes in Next.js routes are required.

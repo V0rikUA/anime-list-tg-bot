@@ -45,6 +45,27 @@ Gateway: `http://localhost:8080`
 
 For Telegram Mini App you must use an HTTPS URL (domain or tunnel) that points to the Next.js service (port 3000) and set `WEB_APP_URL` to `https://<domain>/`.
 
+## Production (Debian VM + Docker + Caddy, subdomains)
+
+This repo includes a Caddy reverse proxy setup for subdomains:
+- `mini.indexforge.site` -> Mini App UI (`/`) and same-origin `/api/*` + `/webhook` to gateway
+- `api.indexforge.site` -> gateway (all paths)
+
+Steps:
+1. Point DNS A records for `mini.indexforge.site` and `api.indexforge.site` to your VM IP.
+2. Open firewall ports `80` and `443`.
+3. Set in `.env`:
+   - `WEB_APP_URL=https://mini.indexforge.site/`
+   - `TELEGRAM_WEBHOOK_URL=https://api.indexforge.site/webhook`
+   - `TELEGRAM_WEBHOOK_SECRET=<random string>` (recommended)
+4. Start stack (only Caddy publishes ports to the host):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml --profile frontend up -d --build
+```
+
+TLS certificates are obtained automatically by Caddy and stored in Docker volumes.
+
 ## Microservices (MVP) + Gateway
 
 This repo uses an HTTP-only microservices layout (no broker) with:
