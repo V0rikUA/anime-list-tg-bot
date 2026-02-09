@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from .ranking import rank_results
+
 
 APP_NAME = "watch-api"
 WATCH_API_TTL_SEC = int(os.environ.get("WATCH_API_TTL_SEC", "3600") or "3600")
@@ -225,6 +227,8 @@ async def search(
     source: Optional[str] = Query(None, min_length=1, max_length=64),
     limit: int = Query(5, ge=1, le=10),
     page: int = Query(1, ge=1, le=100),
+    rank: bool = Query(True),
+    rank_q: Optional[str] = Query(None, min_length=1, max_length=200),
 ):
     STORE.gc()
     _gc_search_cache()
@@ -258,7 +262,13 @@ async def search(
             pages = max(1, (total + int(limit) - 1) // int(limit))
             used_source = src
 
-            for r in (results or [])[offset : offset + int(limit)]:
+            ranked = results or []
+            if rank:
+                rq = _safe_str(rank_q or q, 200)
+                if rq:
+                    ranked = rank_results(rq, ranked, source=src)
+
+            for r in (ranked or [])[offset : offset + int(limit)]:
                 # Store the search result object so we can resolve anime/episodes later.
                 anime_ref = STORE.put("search", r, meta={"source": src})
                 items.append(
