@@ -1,0 +1,19 @@
+{
+  # Email for Let's Encrypt account (optional but recommended).
+  # email you@example.com
+}
+
+mini.indexforge.site {
+  encode gzip
+
+  @api path /api/* /webhook
+  reverse_proxy @api gateway:8080
+
+  reverse_proxy frontend:3000
+}
+
+api.indexforge.site {
+  encode gzip
+  reverse_proxy gateway:8080
+}
+

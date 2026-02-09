@@ -1,0 +1,32 @@
+services:
+  # Public reverse proxy (ports 80/443) for subdomains:
+  # - mini.indexforge.site -> frontend (/) and gateway (/api/*, /webhook)
+  # - api.indexforge.site  -> gateway (all paths)
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_started
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  # In proxy mode, don't expose internal ports to the host.
+  gateway:
+    ports: []
+
+  frontend:
+    ports: []
+
+  postgres:
+    ports: []
+
+volumes:
+  caddy_data:
+  caddy_config:
+
