@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: anime-bot-config
+  namespace: anime-bot
+data:
+  # Public URLs
+  WEB_APP_URL: "https://example.com/"
+  API_BASE_URL: "https://example.com"
+
+  # Service ports
+  GATEWAY_PORT: "8080"
+  CATALOG_PORT: "8080"
+  LIST_PORT: "8080"
+  BACKEND_PORT: "4000"
+  WATCH_PORT: "8000"
+
+  # Gateway upstreams (ClusterIP service DNS names)
+  UPSTREAM_WEBAPP_URL: "http://webapp:8080"
+  UPSTREAM_BOT_URL: "http://bot:8080"
+  UPSTREAM_CATALOG_URL: "http://catalog:8080"
+  UPSTREAM_LIST_URL: "http://list:8080"
+  UPSTREAM_WATCH_URL: "http://watch-api:8000"
+  UPSTREAM_TIMEOUT_MS: "10000"
+  GET_RETRY_MAX: "2"
+
+  # Catalog cache
+  CATALOG_CACHE_TTL_MS: "600000"
+  CATALOG_CACHE_MAX: "500"
+  SHIKIMORI_USER_AGENT: "anime-list-tg-bot"
