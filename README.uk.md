@@ -14,7 +14,9 @@
 ## Налаштування
 
 ```bash
-npm install
+cd bot-service && npm install
+cd ../webapp-service && npm install
+cd ../frontend && npm install
 cp .env.example .env
 ```
 
@@ -35,17 +37,29 @@ cp .env.example .env
 ## Запуск (Docker + Postgres)
 
 ```bash
-docker compose up --build -d
+docker compose --profile frontend up --build
 ```
 
-Backend: `http://localhost:4000`
+Gateway: `http://localhost:8080`
+
+## Мікросервіси (MVP) + Gateway
+
+У репозиторії використовується мікросервісна схема (тільки HTTP, без брокера):
+- `gateway-service` (єдина точка входу для API)
+- `webapp-service` (API для Mini App: `/api/webapp/*` + dashboard)
+- `bot-service` (Telegram bot + webhook receiver)
+- `catalog-service` (пошук + ранжування best-match + кеш)
+- `list-service` (CRUD списків)
+- `watch-api` (існуючий FastAPI сервіс)
+
+Health gateway: `http://localhost:8080/healthz`
 
 ## Запуск (без Docker)
 
-Використай sqlite:
+Використай sqlite (запусти сервіси окремо):
 
 ```bash
-DB_CLIENT=sqlite3 npm start
+cd webapp-service && DB_CLIENT=sqlite3 PORT=8080 npm start
 ```
 
 ## Міграції
@@ -55,13 +69,13 @@ DB_CLIENT=sqlite3 npm start
 Ручний запуск:
 
 ```bash
-npm run migrate
+cd webapp-service && npm run migrate
 ```
 
 Усередині docker:
 
 ```bash
-docker compose exec backend npm run migrate
+docker compose exec webapp npm run migrate
 ```
 
 ## Команди Telegram
@@ -102,16 +116,26 @@ docker compose exec backend npm run migrate
 - `POST /api/webapp/watch/sources` (посилання: джерела для епізоду)
 - `POST /api/webapp/watch/videos` (посилання: відео/якість)
 
+### Ранжування пошуку watch-api
+
+Endpoint `watch-api` `GET /v1/search` тепер сортує верхній список `items` за релевантністю ("найкращий збіг") до запиту.
+
+Опційні query-параметри:
+- `rank=false` щоб вимкнути ранжування і залишити порядок джерела
+- `rank_q=<title>` щоб ранжувати за "канонічною" назвою (при цьому пошук по джерелу все одно виконується за `q`)
+
+Важливо: епізоди/серії не пересортовуються (епізоди отримуються окремо через `GET /v1/episodes`).
+
 Приклад:
 
 ```bash
-curl http://localhost:4000/api/dashboard/123456789
+curl http://localhost:8080/api/dashboard/123456789
 ```
 
 Приклад валідації initData:
 
 ```bash
-curl -X POST http://localhost:4000/api/telegram/validate-init-data \
+curl -X POST http://localhost:8080/api/telegram/validate-init-data \
   -H 'Content-Type: application/json' \
   -d '{"initData":"<raw tg initData string>"}'
 ```
@@ -128,37 +152,37 @@ curl -X POST http://localhost:4000/api/telegram/validate-init-data \
 
 ## Швидкий тест через Cloudflared
 
-1. Запусти backend: `docker compose up -d`
-2. Створи тунель: `cloudflared tunnel --url http://localhost:4000`
-3. Скопіюй HTTPS URL з виводу і задай в `.env`:
-   - `API_BASE_URL=https://<your-url>`
-   - `WEB_APP_URL=https://<your-url>/`
-4. У BotFather встанови `/setmenubutton` на `WEB_APP_URL`.
-5. Перезапусти: `docker compose up -d --build`
-6. У боті виконай `/app` та відкрий кнопку Mini App (URL веде на `/`).
+1. Запусти сервіси: `docker compose --profile frontend up -d --build`
+2. Запусти тунелі (frontend + gateway):
+
+```bash
+./scripts/cloudflared-tunnels.sh
+```
+
+3. Візьми публічний URL Frontend з виводу і встанови `WEB_APP_URL` у `.env`, потім онови BotFather `/setmenubutton`.
 
 ## Telegram Webhook (Cloudflare Tunnel)
 
-1. Запусти backend (docker або локально).
-2. Запусти тунель (backend слухає 4000):
+1. Запусти сервіси (docker або локально).
+2. Запусти тунель на gateway (gateway слухає 8080):
 
 ```bash
-cloudflared tunnel --url http://localhost:4000
+cloudflared tunnel --url http://localhost:8080
 ```
 
 3. Візьми HTTPS URL і задай:
 - `TELEGRAM_WEBHOOK_URL=https://<your-subdomain>.trycloudflare.com/webhook`
 - `TELEGRAM_WEBHOOK_SECRET=<random string>` (опційно, але рекомендується)
 
-4. Застосуй webhook:
+4. Застосуй webhook через Telegram API:
 
 ```bash
-cd backend && npm run webhook:delete
-cd backend && npm run webhook:set
-cd backend && npm run webhook:info
+curl -sS "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \\
+  -d "url=${TELEGRAM_WEBHOOK_URL}" \\
+  -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
 ```
 
-Вимоги до backend:
+Вимоги до bot-service:
 - Telegram буде POST-ити JSON апдейти на `TELEGRAM_WEBHOOK_URL`.
-- Backend відповідає `200` одразу та обробляє апдейти асинхронно.
-- Якщо `TELEGRAM_WEBHOOK_SECRET` задано, backend перевіряє `X-Telegram-Bot-Api-Secret-Token`.
+- Gateway відповідає `200` одразу, а `bot-service` обробляє апдейти асинхронно.
+- Якщо `TELEGRAM_WEBHOOK_SECRET` задано, `bot-service` перевіряє `X-Telegram-Bot-Api-Secret-Token`.
