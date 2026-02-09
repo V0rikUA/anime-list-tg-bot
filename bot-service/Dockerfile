@@ -7,6 +7,10 @@ RUN npm ci --omit=dev
 
 COPY . .
 
-EXPOSE 4000
+ENV NODE_ENV=production \
+    PORT=8080
+
+EXPOSE 8080
 
 CMD ["npm", "start"]
+

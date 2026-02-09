@@ -1,50 +1,11 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
-import fastifyStatic from '@fastify/static';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { validateTelegramWebAppInitData } from './telegramAuth.js';
+
 import { config } from './config.js';
-import { searchAnime, fetchAnimeDetails } from './services/animeSources.js';
+import { validateTelegramWebAppInitData } from './telegramAuth.js';
+import { AnimeRepository } from './db.js';
+import { fetchAnimeDetails } from './services/animeSources.js';
 import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
-
-/**
- * Extracts safe metadata from Telegram initData string for debugging.
- * Never logs the raw initData value.
- * @param {unknown} initDataRaw
- */
-function extractInitDataMeta(initDataRaw) {
-  const initData = String(initDataRaw || '').trim();
-  if (!initData) return null;
-
-  // Never log the raw initData (contains user + hash).
-  const params = new URLSearchParams(initData);
-  const authDate = Number(params.get('auth_date') || 0);
-
-  let userId = null;
-  try {
-    const userRaw = params.get('user');
-    if (userRaw) {
-      const user = JSON.parse(userRaw);
-      if (user?.id) userId = String(user.id);
-    }
-  } catch {
-    // ignore
-  }
-
-  return {
-    initDataLen: initData.length,
-    hasHash: Boolean(params.get('hash')),
-    hasUser: Boolean(params.get('user')),
-    authDate: Number.isFinite(authDate) ? authDate : null,
-    userId
-  };
-}
-
-function buildInviteLink(token) {
-  if (!config.botUsername) return null;
-  return `https://t.me/${config.botUsername}?start=${token}`;
-}
 
 function pickTitleByLang(item, langRaw) {
   const lang = String(langRaw || '').trim().toLowerCase();
@@ -71,209 +32,90 @@ function cacheSet(cache, key, value, ttlMs = 10 * 60 * 1000) {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
-/**
- * Starts Fastify HTTP server with:
- * - static assets (legacy mini app)
- * - `/app` which redirects to `webAppUrl` when provided (Next.js mini app)
- * - healthcheck and Telegram endpoints
- *
- * @param {Object} opts
- * @param {import('./db.js').AnimeRepository} opts.repository
- * @param {number} opts.port
- * @param {string} opts.telegramToken
- * @param {string=} opts.webAppUrl
- * @param {number} opts.webAppAuthMaxAgeSec
- * @param {any} opts.bot
- * @param {string} opts.telegramWebhookPath
- * @param {string} opts.telegramWebhookSecret
- */
-export async function startApiServer({
-  repository,
-  port,
-  telegramToken,
-  webAppUrl,
-  webAppAuthMaxAgeSec,
-  bot,
-  telegramWebhookPath,
-  telegramWebhookSecret
-}) {
-  const app = Fastify({
-    logger: {
-      level: 'info'
+async function callJson(url, { method = 'GET', headers = {}, body = null, timeoutMs = 15000 } = {}) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body: body === null ? undefined : JSON.stringify(body),
+      signal: controller.signal
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      const err = new Error(String(json?.error || json?.detail || `request failed with ${res.status}`));
+      err.status = res.status;
+      throw err;
+    }
+    return json;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function catalogSearch({ q, limit = 50, lang = null, sources = null } = {}) {
+  const url = new URL(`${config.catalogServiceUrl}/v1/catalog/search`);
+  url.searchParams.set('q', String(q || '').trim());
+  url.searchParams.set('limit', String(limit));
+  if (lang) url.searchParams.set('lang', String(lang));
+  if (sources && sources.length) url.searchParams.set('sources', sources.join(','));
+  return callJson(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
     }
   });
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
+}
 
-  await app.register(cors, {
-    origin: true
+async function listAdd({ telegramUserId, uid, listType } = {}) {
+  const url = new URL(`${config.listServiceUrl}/v1/list/${encodeURIComponent(String(telegramUserId))}/items`);
+  return callJson(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
+    },
+    body: { uid, listType }
+  });
+}
+
+async function ensureAnimeInDb(repository, uid) {
+  let anime = await repository.getCatalogItem(uid);
+  if (anime) return anime;
+
+  const details = await fetchAnimeDetails(uid).catch(() => null);
+  if (details) {
+    await repository.upsertCatalog([details]).catch(() => null);
+    anime = await repository.getCatalogItem(uid);
+  }
+  return anime;
+}
+
+async function main() {
+  const repository = new AnimeRepository({
+    client: config.dbClient,
+    dbPath: config.dbPath,
+    databaseUrl: config.databaseUrl
+  });
+  await repository.init();
+
+  const app = Fastify({ logger: { level: 'info' } });
+  await app.register(cors, { origin: true });
+
+  app.get('/healthz', async (request, reply) => {
+    const dbHealth = await repository.checkHealth();
+    if (!dbHealth.ok) return reply.code(503).send({ ok: false, database: dbHealth });
+    return { ok: true, database: dbHealth, uptimeSec: Math.floor(process.uptime()) };
   });
 
-  await app.register(fastifyStatic, {
-    root: path.join(__dirname, '..', 'public'),
-    prefix: '/'
-  });
-
-  app.get('/app', async (request, reply) => {
-    const target = String(webAppUrl || '').trim();
-    if (target) {
-      return reply.redirect(target);
-    }
-    return reply.sendFile('index.html');
-  });
-
+  // Backwards-compatible health endpoint (used by some tooling).
   app.get('/health', async (request, reply) => {
     const dbHealth = await repository.checkHealth();
-    if (!dbHealth.ok) {
-      return reply.code(503).send({
-        ok: false,
-        database: dbHealth,
-        uptimeSec: Math.floor(process.uptime())
-      });
-    }
-
-    return {
-      ok: true,
-      database: dbHealth,
-      uptimeSec: Math.floor(process.uptime())
-    };
-  });
-
-  // Telegram webhook endpoint. Must respond 200 quickly.
-  app.post(telegramWebhookPath || '/webhook', async (request, reply) => {
-    const expectedSecret = telegramWebhookSecret || '';
-    if (expectedSecret) {
-      const headerSecret = request.headers['x-telegram-bot-api-secret-token'];
-      if (headerSecret !== expectedSecret) {
-        app.log.warn({ hasHeader: Boolean(headerSecret) }, 'telegram webhook secret mismatch');
-        return reply.code(401).send({ ok: false });
-      }
-    }
-
-    const update = request.body;
-
-    // Reply immediately; process update async.
-    reply.code(200).send({ ok: true });
-
-    if (!bot) {
-      app.log.warn('telegram webhook received but bot is disabled');
-      return;
-    }
-
-    if (!update || typeof update !== 'object') {
-      app.log.warn({ bodyType: typeof update }, 'telegram webhook body is not an object');
-      return;
-    }
-
-    setImmediate(async () => {
-      try {
-        await bot.handleUpdate(update);
-      } catch (error) {
-        app.log.error({ err: error }, 'failed to handle telegram update');
-      }
-    });
-  });
-
-  app.post('/api/telegram/validate-init-data', async (request, reply) => {
-    const initData = request.body?.initData;
-    if (typeof initData !== 'string' || !initData.trim()) {
-      return reply.code(400).send({ ok: false, error: 'initData is required' });
-    }
-
-    const validation = validateTelegramWebAppInitData({
-      initData,
-      botToken: telegramToken,
-      maxAgeSec: webAppAuthMaxAgeSec
-    });
-
-    if (!validation.ok) {
-      app.log.warn({ error: validation.error }, 'telegram initData validation failed');
-      return reply.code(401).send(validation);
-    }
-
-    return {
-      ok: true,
-      telegramUserId: validation.telegramUserId,
-      user: validation.user,
-      authDate: validation.authDate
-    };
-  });
-
-  app.post('/api/webapp/dashboard', async (request, reply) => {
-    const initData = request.body?.initData;
-    if (typeof initData !== 'string' || !initData.trim()) {
-      return reply.code(400).send({ ok: false, error: 'initData is required' });
-    }
-
-    const validation = validateTelegramWebAppInitData({
-      initData,
-      botToken: telegramToken,
-      maxAgeSec: webAppAuthMaxAgeSec
-    });
-
-    if (!validation.ok) {
-      const meta = extractInitDataMeta(initData);
-      app.log.warn(
-        { error: validation.error, meta },
-        'telegram initData validation failed (webapp dashboard)'
-      );
-      return reply.code(401).send(validation);
-    }
-
-    const dashboard = await repository.getDashboard(validation.telegramUserId);
-    if (!dashboard.user) {
-      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
-    }
-
-    return {
-      ok: true,
-      telegramUserId: validation.telegramUserId,
-      ...dashboard
-    };
-  });
-
-  app.post('/api/webapp/invite', async (request, reply) => {
-    const initData = request.body?.initData;
-    if (typeof initData !== 'string' || !initData.trim()) {
-      return reply.code(400).send({ ok: false, error: 'initData is required' });
-    }
-
-    const validation = validateTelegramWebAppInitData({
-      initData,
-      botToken: telegramToken,
-      maxAgeSec: webAppAuthMaxAgeSec
-    });
-
-    if (!validation.ok) {
-      const meta = extractInitDataMeta(initData);
-      app.log.warn({ error: validation.error, meta }, 'telegram initData validation failed (webapp invite)');
-      return reply.code(401).send(validation);
-    }
-
-    const token = await repository.createInviteToken(validation.user || { id: validation.telegramUserId });
-    const link = buildInviteLink(token);
-    if (!link) {
-      return reply.code(500).send({ ok: false, error: 'TELEGRAM_BOT_USERNAME is not set' });
-    }
-
-    return { ok: true, token, link };
-  });
-
-  app.post('/api/webapp/lang', async (request, reply) => {
-    const validation = validateInitDataOrReply(request, reply);
-    if (!validation) return;
-
-    const lang = String(request.body?.lang || '').trim().toLowerCase();
-    if (!lang) {
-      return reply.code(400).send({ ok: false, error: 'lang is required' });
-    }
-
-    const out = await repository.setUserLang(validation.telegramUserId, lang);
-    if (!out.ok) {
-      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
-    }
-
-    return { ok: true, lang: out.lang };
+    if (!dbHealth.ok) return reply.code(503).send({ ok: false, database: dbHealth });
+    return { ok: true, database: dbHealth, uptimeSec: Math.floor(process.uptime()) };
   });
 
   function validateInitDataOrReply(request, reply) {
@@ -285,19 +127,71 @@ export async function startApiServer({
 
     const validation = validateTelegramWebAppInitData({
       initData,
-      botToken: telegramToken,
-      maxAgeSec: webAppAuthMaxAgeSec
+      botToken: config.telegramToken,
+      maxAgeSec: config.webAppAuthMaxAgeSec
     });
 
     if (!validation.ok) {
-      const meta = extractInitDataMeta(initData);
-      app.log.warn({ error: validation.error, meta }, 'telegram initData validation failed (webapp)');
       reply.code(401).send(validation);
       return null;
     }
-
     return validation;
   }
+
+  app.post('/api/telegram/validate-init-data', async (request, reply) => {
+    const initData = request.body?.initData;
+    if (typeof initData !== 'string' || !initData.trim()) {
+      return reply.code(400).send({ ok: false, error: 'initData is required' });
+    }
+    const validation = validateTelegramWebAppInitData({
+      initData,
+      botToken: config.telegramToken,
+      maxAgeSec: config.webAppAuthMaxAgeSec
+    });
+    if (!validation.ok) return reply.code(401).send(validation);
+    return {
+      ok: true,
+      telegramUserId: validation.telegramUserId,
+      user: validation.user,
+      authDate: validation.authDate
+    };
+  });
+
+  app.post('/api/webapp/dashboard', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const dashboard = await repository.getDashboard(validation.telegramUserId);
+    if (!dashboard.user) {
+      return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    }
+    return { ok: true, telegramUserId: validation.telegramUserId, ...dashboard };
+  });
+
+  app.post('/api/webapp/invite', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    await repository.ensureUser({ id: validation.telegramUserId });
+    const token = await repository.createInviteToken(validation.user || { id: validation.telegramUserId });
+    if (!config.botUsername) {
+      return reply.code(500).send({ ok: false, error: 'TELEGRAM_BOT_USERNAME is not set' });
+    }
+    const link = `https://t.me/${config.botUsername}?start=${token}`;
+    return { ok: true, link };
+  });
+
+  app.post('/api/webapp/lang', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+    const lang = String(request.body?.lang || '').trim();
+    if (!lang) return reply.code(400).send({ ok: false, error: 'lang is required' });
+
+    await repository.ensureUser({ id: validation.telegramUserId });
+    const out = await repository.setUserLang(validation.telegramUserId, lang);
+    if (!out.ok) return reply.code(400).send({ ok: false, error: out.reason || 'failed' });
+    return { ok: true, lang: out.lang };
+  });
 
   app.post('/api/webapp/search', async (request, reply) => {
     const validation = validateInitDataOrReply(request, reply);
@@ -316,14 +210,13 @@ export async function startApiServer({
     const safeLimit = Number.isFinite(limit) ? Math.min(10, Math.max(1, limit)) : 5;
     const safePage = Number.isFinite(page) ? Math.max(1, Math.trunc(page)) : 1;
 
-    const cacheKey = `q:${q}`;
+    const cacheKey = `q:${q}|lang:${user.lang || 'en'}`;
     let all = cacheGet(webappSearchCache, cacheKey);
     if (!all) {
-      // Fetch a larger batch once, then paginate in-memory for stable paging.
-      const results = await searchAnime(q, 50);
-      all = Array.isArray(results) ? results : [];
+      const out = await catalogSearch({ q, limit: 50, lang: user.lang || 'en', sources: ['jikan', 'shikimori'] });
+      const results = Array.isArray(out?.items) ? out.items : [];
+      all = results;
       cacheSet(webappSearchCache, cacheKey, all);
-      // Best-effort: persist results so list actions can work even if user taps fast.
       try {
         await repository.upsertCatalog(all);
       } catch {
@@ -337,7 +230,6 @@ export async function startApiServer({
     const offset = (clampedPage - 1) * safeLimit;
     const slice = all.slice(offset, offset + safeLimit);
 
-    // Prefer DB-localized titles (since DB may have translated UK, etc.)
     const uids = slice.map((it) => String(it?.uid || '').trim()).filter(Boolean);
     const localizedRows = uids.length ? await repository.getCatalogItemsLocalized(uids, user.lang || 'en') : [];
     const byUid = new Map(localizedRows.map((r) => [String(r.uid), r]));
@@ -377,18 +269,15 @@ export async function startApiServer({
 
     await repository.ensureUser({ id: validation.telegramUserId });
 
-    let anime = await repository.getCatalogItem(uid);
-    if (!anime) {
-      const details = await fetchAnimeDetails(uid).catch(() => null);
-      if (details) {
-        await repository.upsertCatalog([details]).catch(() => null);
-        anime = await repository.getCatalogItem(uid);
-      }
-    }
+    const anime = await ensureAnimeInDb(repository, uid);
     if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
 
-    await repository.addToTrackedList(validation.user || { id: validation.telegramUserId }, listType, anime);
-    return reply.send({ ok: true });
+    try {
+      await listAdd({ telegramUserId: validation.telegramUserId, uid, listType });
+      return reply.send({ ok: true });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
+    }
   });
 
   app.post('/api/webapp/recommend/add', async (request, reply) => {
@@ -399,21 +288,14 @@ export async function startApiServer({
     if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
 
     await repository.ensureUser({ id: validation.telegramUserId });
-
-    let anime = await repository.getCatalogItem(uid);
-    if (!anime) {
-      const details = await fetchAnimeDetails(uid).catch(() => null);
-      if (details) {
-        await repository.upsertCatalog([details]).catch(() => null);
-        anime = await repository.getCatalogItem(uid);
-      }
-    }
+    const anime = await ensureAnimeInDb(repository, uid);
     if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
 
     await repository.addRecommendation(validation.user || { id: validation.telegramUserId }, anime);
     return reply.send({ ok: true });
   });
 
+  // Watch endpoints (preserve behavior; still backed by watch-api).
   app.post('/api/webapp/watch/search', async (request, reply) => {
     const validation = validateInitDataOrReply(request, reply);
     if (!validation) return;
@@ -432,14 +314,10 @@ export async function startApiServer({
     let map = uid ? await repository.getWatchMap(uid) : null;
 
     if (!q && uid) {
-      // For watch sources, English title usually yields better matches than localized titles.
       const anime = await repository.getCatalogItem(uid);
-      if (!anime) {
-        return reply.code(404).send({ ok: false, error: 'anime not found' });
-      }
+      if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
       q = String(anime.titleEn || anime.title || '').trim();
     }
-
     if (!q) return reply.code(400).send({ ok: false, error: 'q or uid is required' });
 
     const preferredSource = source || map?.watchSource || '';
@@ -447,37 +325,26 @@ export async function startApiServer({
     try {
       const safeLimit = Number.isFinite(limit) ? limit : 5;
       const safePage = Number.isFinite(page) ? page : 1;
-      const out = await watchSearch({
-        q,
-        source: preferredSource || null,
-        limit: safeLimit,
-        page: safePage
-      });
+      const out = await watchSearch({ q, source: preferredSource || null, limit: safeLimit, page: safePage });
       const items = Array.isArray(out?.items) ? out.items : [];
       const total = Number.isFinite(Number(out?.total)) ? Number(out.total) : null;
 
       let autoPick = null;
       if (map?.watchUrl) {
         const match = items.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
-        if (match?.animeRef) {
-          autoPick = match;
-        }
+        if (match?.animeRef) autoPick = match;
       }
-      // If the exact match isn't on the current page, try a larger first page to find it.
       if (!autoPick && map?.watchUrl) {
         try {
           const resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
           const resolveItems = Array.isArray(resolveOut?.items) ? resolveOut.items : [];
           const match = resolveItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
-          if (match?.animeRef) {
-            autoPick = match;
-          }
+          if (match?.animeRef) autoPick = match;
         } catch {
-          // ignore resolve failure
+          // ignore
         }
       }
 
-      // If no mapping exists yet and the search is unambiguous, bind automatically.
       const isUnambiguous = total !== null ? total === 1 : items.length === 1;
       if (!map && uid && isUnambiguous && items.length === 1) {
         const only = items[0];
@@ -489,16 +356,12 @@ export async function startApiServer({
             map = await repository.getWatchMap(uid);
             if (only?.animeRef) autoPick = only;
           } catch {
-            // ignore autobind failure
+            // ignore
           }
         }
       }
 
-      // If we have a stored mapping, reorder list with exact match first.
-      const ordered = autoPick
-        ? [autoPick, ...items.filter((it) => it !== autoPick)]
-        : items;
-
+      const ordered = autoPick ? [autoPick, ...items.filter((it) => it !== autoPick)] : items;
       return reply.send({
         ok: true,
         items: ordered,
@@ -509,8 +372,8 @@ export async function startApiServer({
         map: map ? { uid, watchSource: map.watchSource, watchUrl: map.watchUrl, watchTitle: map.watchTitle } : null,
         autoPick
       });
-    } catch (error) {
-      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -531,8 +394,8 @@ export async function startApiServer({
       await repository.ensureUser({ id: validation.telegramUserId });
       await repository.setWatchMap(uid, watchSource, watchUrl, watchTitle);
       return reply.send({ ok: true });
-    } catch (error) {
-      const msg = error?.message === 'anime_not_found' ? 'anime not found' : (error?.message || String(error));
+    } catch (err) {
+      const msg = err?.message === 'anime_not_found' ? 'anime not found' : (err?.message || String(err));
       return reply.code(400).send({ ok: false, error: msg });
     }
   });
@@ -548,8 +411,8 @@ export async function startApiServer({
       await repository.ensureUser({ id: validation.telegramUserId });
       await repository.clearWatchMap(uid);
       return reply.send({ ok: true });
-    } catch (error) {
-      return reply.code(400).send({ ok: false, error: error?.message || String(error) });
+    } catch (err) {
+      return reply.code(400).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -559,12 +422,11 @@ export async function startApiServer({
 
     const animeRef = String(request.body?.animeRef || '').trim();
     if (!animeRef) return reply.code(400).send({ ok: false, error: 'animeRef is required' });
-
     try {
       const out = await watchEpisodes({ animeRef });
       return reply.send(out);
-    } catch (error) {
-      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -573,15 +435,14 @@ export async function startApiServer({
     if (!validation) return;
 
     const animeRef = String(request.body?.animeRef || '').trim();
-    const episodeNum = String(request.body?.episodeNum || '').trim();
+    const episodeNum = String(request.body?.episodeNum || request.body?.episode_num || '').trim();
     if (!animeRef) return reply.code(400).send({ ok: false, error: 'animeRef is required' });
     if (!episodeNum) return reply.code(400).send({ ok: false, error: 'episodeNum is required' });
-
     try {
       const out = await watchSourcesForEpisode({ animeRef, episodeNum });
       return reply.send(out);
-    } catch (error) {
-      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -591,80 +452,61 @@ export async function startApiServer({
 
     const sourceRef = String(request.body?.sourceRef || '').trim();
     if (!sourceRef) return reply.code(400).send({ ok: false, error: 'sourceRef is required' });
-
     try {
       const out = await watchVideos({ sourceRef });
       return reply.send(out);
-    } catch (error) {
-      return reply.code(error?.status || 502).send({ ok: false, error: error?.message || String(error) });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
-  // Client-side diagnostic logs from the Mini App (optional).
-  app.post('/api/client-log', async (request, reply) => {
-    const body = request.body || {};
-    const event = typeof body.event === 'string' ? body.event.slice(0, 64) : 'unknown';
-    const message = typeof body.message === 'string' ? body.message.slice(0, 500) : null;
-    const data = body.data && typeof body.data === 'object' ? body.data : null;
-
-    app.log.info(
-      {
-        event,
-        message,
-        data,
-        ua: request.headers['user-agent'] || null,
-        ip: request.ip
-      },
-      'client-log'
-    );
-
-    return reply.send({ ok: true });
-  });
-
-  // Legacy/debug endpoint. Mini App should use /api/webapp/dashboard.
+  // Debug/legacy endpoints (used by frontend in debug mode).
   app.get('/api/dashboard/:telegramUserId', async (request, reply) => {
-    const { telegramUserId } = request.params;
+    const telegramUserId = String(request.params?.telegramUserId || '').trim();
+    if (!telegramUserId) return reply.code(400).send({ ok: false, error: 'telegramUserId is required' });
     const dashboard = await repository.getDashboard(telegramUserId);
-
-    if (!dashboard.user) {
-      return reply.code(404).send({ error: 'User not found' });
-    }
-
-    return {
-      telegramUserId: String(telegramUserId),
-      ...dashboard
-    };
+    if (!dashboard.user) return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    return { ok: true, telegramUserId, ...dashboard };
   });
 
   app.get('/api/users/:telegramUserId/watch-stats/:uid', async (request, reply) => {
-    const { telegramUserId, uid } = request.params;
-    const user = await repository.getUserByTelegramId(telegramUserId);
-    if (!user) {
-      return reply.code(404).send({ error: 'User not found' });
-    }
-
+    const telegramUserId = String(request.params?.telegramUserId || '').trim();
+    const uid = String(request.params?.uid || '').trim();
+    if (!telegramUserId) return reply.code(400).send({ ok: false, error: 'telegramUserId is required' });
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
     const stats = await repository.getWatchStats(telegramUserId, uid);
-    return {
-      telegramUserId: String(telegramUserId),
-      uid,
-      ...stats
-    };
+    return { ok: true, ...stats };
   });
 
   app.get('/api/users/:telegramUserId/friends', async (request, reply) => {
-    const { telegramUserId } = request.params;
-    const user = await repository.getUserByTelegramId(telegramUserId);
-    if (!user) {
-      return reply.code(404).send({ error: 'User not found' });
-    }
-
+    const telegramUserId = String(request.params?.telegramUserId || '').trim();
+    if (!telegramUserId) return reply.code(400).send({ ok: false, error: 'telegramUserId is required' });
     const friends = await repository.getFriends(telegramUserId);
-    return {
-      telegramUserId: String(telegramUserId),
-      friends
-    };
+    return { ok: true, friends };
   });
 
-  await app.listen({ port, host: '0.0.0.0' });
-  return app;
+  await app.listen({ port: config.port, host: '0.0.0.0' });
+
+  const shutdown = async (signal) => {
+    app.log.info({ signal }, 'shutting down');
+    try {
+      await app.close();
+      await repository.destroy();
+      process.exit(0);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(err);
+      process.exit(1);
+    }
+  };
+
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
 }
+
+main().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error(err);
+  process.exit(1);
+});
+

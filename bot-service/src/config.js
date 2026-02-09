@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 
 // Load env vars in both setups:
 // - running from repo root (./.env)
-// - running via `cd backend && npm run dev` (dotenv would otherwise look for backend/.env)
+// - running via `cd bot-service && npm run dev` (dotenv would otherwise look for bot-service/.env)
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -27,7 +27,7 @@ function toInt(name, value, fallback) {
   return parsed;
 }
 
-const rawPort = toInt('API_PORT', process.env.API_PORT, 4000);
+const rawPort = toInt('PORT', process.env.PORT, 8080);
 
 const telegramWebhookUrl = process.env.TELEGRAM_WEBHOOK_URL || '';
 let telegramWebhookPath = process.env.TELEGRAM_WEBHOOK_PATH || '/webhook';
@@ -51,12 +51,11 @@ export const config = {
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
   databaseUrl: process.env.DATABASE_URL || '',
 
-  apiPort: rawPort,
-  apiBaseUrl: process.env.API_BASE_URL || `http://localhost:${rawPort}`,
+  port: rawPort,
   // Used for Telegram Mini App "Web App" button (must be HTTPS in Telegram).
   webAppUrl: process.env.WEB_APP_URL || `${process.env.FRONTEND_BASE_URL || 'http://localhost:3000'}/`,
   // Shared secret used by Next.js middleware to allow Mini App pages access.
-  // Add it to the Mini App URL as `?mt=...` from bot/backend code.
+  // Add it to the Mini App URL as `?mt=...` from bot code.
   miniAppAccessToken: process.env.MINIAPP_ACCESS_TOKEN || '',
 
   telegramWebhookUrl,

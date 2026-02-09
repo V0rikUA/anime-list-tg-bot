@@ -7,9 +7,9 @@ const repository = new AnimeRepository({
   databaseUrl: config.databaseUrl
 });
 
-try {
-  await repository.init();
-  console.log('Migrations completed.');
-} finally {
-  await repository.destroy();
-}
+await repository.init();
+await repository.destroy();
+
+// eslint-disable-next-line no-console
+console.log('migrations applied');
+

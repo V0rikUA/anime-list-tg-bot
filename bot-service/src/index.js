@@ -1,8 +1,8 @@
 import telegrafPkg from 'telegraf';
+import Fastify from 'fastify';
 import { config } from './config.js';
 import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
-import { startApiServer } from './server.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
 import { fetchAnimeDetails, searchAnime } from './services/animeSources.js';
 import { translateShort } from './services/translate.js';
@@ -16,7 +16,7 @@ import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from 
 
 const { Markup, Telegraf } = telegrafPkg;
 
-const logger = createLogger('backend');
+const logger = createLogger('bot-service');
 
 const LANGS = ['en', 'ru', 'uk'];
 const LANG_LABELS = {
@@ -1348,19 +1348,51 @@ if (!bot) {
   });
 }
 
-const apiServer = await startApiServer({
-  repository,
-  port: config.apiPort,
-  telegramToken: config.telegramToken,
-  webAppUrl: config.webAppUrl,
-  webAppAuthMaxAgeSec: config.webAppAuthMaxAgeSec,
-  bot,
-  telegramWebhookPath: config.telegramWebhookPath,
-  telegramWebhookSecret: config.telegramWebhookSecret
+const httpServer = Fastify({ logger: { level: 'info' } });
+
+httpServer.get('/healthz', async () => {
+  const dbHealth = await repository.checkHealth();
+  if (!dbHealth.ok) return { ok: false, database: dbHealth };
+  return { ok: true, database: dbHealth, uptimeSec: Math.floor(process.uptime()) };
 });
 
-logger.info('api server started', {
-  port: config.apiPort,
+// Telegram webhook endpoint. Must respond 200 quickly.
+httpServer.post(config.telegramWebhookPath || '/webhook', async (request, reply) => {
+  const expectedSecret = config.telegramWebhookSecret || '';
+  if (expectedSecret) {
+    const headerSecret = request.headers['x-telegram-bot-api-secret-token'];
+    if (headerSecret !== expectedSecret) {
+      httpServer.log.warn({ hasHeader: Boolean(headerSecret) }, 'telegram webhook secret mismatch');
+      return reply.code(401).send({ ok: false });
+    }
+  }
+
+  const update = request.body;
+  reply.code(200).send({ ok: true });
+
+  if (!bot) {
+    httpServer.log.warn('telegram webhook received but bot is disabled');
+    return;
+  }
+
+  if (!update || typeof update !== 'object') {
+    httpServer.log.warn({ bodyType: typeof update }, 'telegram webhook body is not an object');
+    return;
+  }
+
+  setImmediate(async () => {
+    try {
+      await bot.handleUpdate(update);
+    } catch (error) {
+      httpServer.log.error({ err: error }, 'failed to handle telegram update');
+    }
+  });
+});
+
+await httpServer.listen({ port: config.port, host: '0.0.0.0' });
+
+logger.info('bot http server started', {
+  port: config.port,
   webhookMode: Boolean(config.telegramWebhookUrl),
   webhookPath: config.telegramWebhookPath
 });
@@ -1368,7 +1400,7 @@ logger.info('api server started', {
 if (bot) {
   if (config.telegramWebhookUrl) {
     // In webhook mode we don't need to call Telegram API on startup.
-    // Network policies/DNS issues can block api.telegram.org and should not crash the backend.
+    // Network policies/DNS issues can block api.telegram.org and should not crash the bot-service.
     try {
       const me = await bot.telegram.getMe();
       bot.botInfo = me;
@@ -1388,7 +1420,7 @@ if (bot) {
       await bot.launch();
       logger.info('telegram bot started (long polling)');
     } catch (error) {
-      logger.error('failed to launch telegram bot; backend will keep running', error);
+      logger.error('failed to launch telegram bot; bot-service will keep running', error);
     }
   }
 }
@@ -1399,7 +1431,7 @@ async function shutdown(signal) {
     if (bot) {
       bot.stop(signal);
     }
-    await apiServer.close();
+    await httpServer.close();
     await repository.destroy();
     process.exit(0);
   } catch (error) {
