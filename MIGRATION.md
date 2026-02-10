@@ -25,13 +25,13 @@ This repo is now fully migrated to a microservices layout (HTTP-only, no broker)
 Local run (with ports exposed to host):
 
 ```bash
-docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker/docker-compose.local.yml up --build
 ```
 
 Dev (hot reload):
 
 ```bash
-docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
+docker compose --env-file .env.local -f docker/docker-compose.dev.yml --profile frontend up --build
 ```
 
 Endpoints:
@@ -46,7 +46,7 @@ For subdomain-based routing on a VM, use the included `docker-compose.proxy.yml`
 
 Example:
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker/docker-compose.proxy.yml up -d --build
 ```
 
 Expected DNS:
@@ -63,7 +63,7 @@ Env highlights:
 If you prefer Traefik for subdomains + automatic TLS, use `docker-compose.traefik.yml`:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
+docker compose -f docker-compose.yml -f docker/docker-compose.traefik.yml up -d --build
 ```
 
 Required `.env`:

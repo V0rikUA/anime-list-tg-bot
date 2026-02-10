@@ -13,18 +13,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+    networks:
+      - app
 
   watch-api:
     build:
       context: ./watch-api
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - app
 
   catalog:
     build:
       context: ./catalog-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - app
     environment:
       PORT: 8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -37,6 +43,8 @@ services:
       context: ./list-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - app
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,6 +58,8 @@ services:
       context: ./webapp-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - app
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,6 +88,8 @@ services:
       context: ./bot-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - app
     depends_on:
       postgres:
         condition: service_healthy
@@ -115,20 +127,20 @@ services:
       list:
         condition: service_started
     networks:
-      - default
-      - proxy
+      - app
+      - traefik
     labels:
       - traefik.enable=true
-      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-traefik}
       - traefik.http.services.gateway.loadbalancer.server.port=8080
 
       # api.<domain> -> gateway (all paths)
-      - traefik.http.routers.api.rule=Host(`${API_HOST:-api.localhost}`)
+      - traefik.http.routers.api.rule=Host(`${API_HOST}`)
       - traefik.http.routers.api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
       - traefik.http.routers.api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
 
       # mini.<domain> -> gateway only for /api/* and /webhook
-      - traefik.http.routers.mini_api.rule=Host(`${MINI_HOST:-mini.localhost}`) && (PathPrefix(`/api`) || Path(`/webhook`))
+      - traefik.http.routers.mini_api.rule=Host(`${MINI_HOST}`) && (PathPrefix(`/api`) || Path(`/webhook`))
       - traefik.http.routers.mini_api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
       - traefik.http.routers.mini_api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
       - traefik.http.routers.mini_api.priority=100
@@ -153,15 +165,15 @@ services:
       gateway:
         condition: service_started
     networks:
-      - default
-      - proxy
+      - app
+      - traefik
     labels:
       - traefik.enable=true
-      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-traefik}
       - traefik.http.services.frontend.loadbalancer.server.port=3000
 
       # mini.<domain> UI (everything else)
-      - traefik.http.routers.mini_ui.rule=Host(`${MINI_HOST:-mini.localhost}`)
+      - traefik.http.routers.mini_ui.rule=Host(`${MINI_HOST}`)
       - traefik.http.routers.mini_ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
       - traefik.http.routers.mini_ui.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
       - traefik.http.routers.mini_ui.priority=1
@@ -173,5 +185,8 @@ volumes:
   postgres_data:
 
 networks:
-  proxy:
+  app:
+    driver: bridge
+  traefik:
     external: true
+    name: ${TRAEFIK_DOCKER_NETWORK:-traefik}
