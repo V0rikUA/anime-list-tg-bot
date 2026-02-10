@@ -37,7 +37,7 @@ cp .env.example .env
 ## Запуск (Docker + Postgres)
 
 ```bash
-docker compose --profile frontend up --build
+docker compose up --build
 ```
 
 Gateway: `http://localhost:8080`
@@ -58,7 +58,7 @@ Gateway: `http://localhost:8080`
 4. Запусти стек (наружу публикует порты только Caddy):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.proxy.yml --profile frontend up -d --build
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 ```
 
 TLS сертификаты Caddy получит автоматически и сохранит в Docker volume.
@@ -173,7 +173,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 
 ## Быстрый тест через Cloudflared
 
-1. Запусти сервисы: `docker compose --profile frontend up -d --build`
+1. Запусти сервисы: `docker compose up -d --build`
 2. Запусти туннели (frontend + gateway):
 
 ```bash

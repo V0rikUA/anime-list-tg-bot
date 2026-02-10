@@ -131,7 +131,6 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
 
   frontend:
-    profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -147,4 +146,3 @@ services:
 
 volumes:
   postgres_data:
-

@@ -152,7 +152,6 @@ services:
       - /app/node_modules
 
   frontend:
-    profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
@@ -172,4 +171,3 @@ services:
 
 volumes:
   postgres_data_dev:
-
