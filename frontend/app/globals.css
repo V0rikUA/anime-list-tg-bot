@@ -54,6 +54,11 @@ html[data-theme="dark"] body {
   gap: 14px;
 }
 
+.app.has-player {
+  /* Keep content scrollable above the bottom player. */
+  padding-bottom: calc(310px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -235,6 +240,60 @@ h1 {
   font-size: 12px;
 }
 
+.search-box {
+  display: grid;
+  gap: 8px;
+}
+
+.search-row {
+  display: grid;
+  gap: 8px;
+}
+
+.search-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 10px 12px;
+  color: var(--text);
+  outline: none;
+  /* Prevent iOS WebView auto-zoom on focus (happens when font-size < 16px). */
+  font-size: 16px;
+}
+
+.search-input::placeholder {
+  color: var(--muted);
+}
+
+.search-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.btn-chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.btn-chip:active {
+  transform: scale(0.99);
+}
+
+.search-pager {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
 .badge {
   display: inline-block;
   margin-top: 6px;
@@ -317,6 +376,104 @@ h1 {
 .link {
   color: var(--accent);
   font-weight: 700;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: calc(14px + env(safe-area-inset-top, 0px) + var(--tg-safe-area-top, 0px)) 14px
+    calc(14px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+}
+
+.modal {
+  width: min(900px, 100%);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.modal-body {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.player {
+  width: 100%;
+  background: #000;
+  border-radius: 12px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.player-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px) + var(--tg-safe-area-bottom, 0px));
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.28), rgba(0, 0, 0, 0));
+}
+
+.player-dock-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px 14px 0 0;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.player-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  backdrop-filter: blur(10px);
+}
+
+.player-dock-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.player-dock-body {
+  padding: 12px;
+  display: grid;
+  gap: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {

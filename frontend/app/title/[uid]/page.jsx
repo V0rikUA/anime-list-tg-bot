@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useDispatch, useSelector } from 'react-redux';
 import { setLanguage, setTheme } from '../../../lib/store';
@@ -27,11 +27,16 @@ export default function TitlePage() {
     animeRef: '',
     episodeNum: '',
     sourceRef: '',
+    map: null,
     titles: [],
     episodes: [],
     sources: [],
     videos: []
   });
+
+  const [playerState, setPlayerState] = useState({ open: false, url: '', label: '' });
+  const [playerError, setPlayerError] = useState('');
+  const videoRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,21 +94,135 @@ export default function TitlePage() {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
-  async function watchFindTitles() {
+  const canInlinePlay = useMemo(() => {
+    return (video) => {
+      const url = String(video?.url || '').trim();
+      if (!url || !(url.startsWith('http://') || url.startsWith('https://'))) return false;
+
+      const type = String(video?.type || '').toLowerCase();
+      if (type.includes('m3u8') || type.includes('hls')) return true;
+      if (type.includes('mp4')) return true;
+      if (url.toLowerCase().includes('.m3u8')) return true;
+      if (url.toLowerCase().includes('.mp4')) return true;
+      return false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!playerState.open) return;
+    if (!playerState.url) return;
+
+    let cancelled = false;
+    let hls = null;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    setPlayerError('');
+
+    // Reset any previous state.
+    try {
+      video.pause();
+    } catch {
+      // ignore
+    }
+    video.removeAttribute('src');
+    try {
+      video.load();
+    } catch {
+      // ignore
+    }
+
+    const url = String(playerState.url);
+    const isHls = url.toLowerCase().includes('.m3u8');
+
+    const onVideoError = () => {
+      if (cancelled) return;
+      setPlayerError(t('title.watchPlayerFailed'));
+    };
+
+    video.addEventListener('error', onVideoError);
+
+    (async () => {
+      try {
+        if (isHls) {
+          const canNative = !!video.canPlayType && video.canPlayType('application/vnd.apple.mpegurl');
+          if (canNative) {
+            video.src = url;
+          } else {
+            const mod = await import('hls.js');
+            const Hls = mod.default;
+            if (!Hls?.isSupported?.()) {
+              throw new Error('hls not supported');
+            }
+            hls = new Hls({
+              enableWorker: true,
+              lowLatencyMode: false
+            });
+            hls.on(Hls.Events.ERROR, () => {
+              if (cancelled) return;
+              setPlayerError(t('title.watchPlayerFailed'));
+            });
+            hls.loadSource(url);
+            hls.attachMedia(video);
+          }
+        } else {
+          video.src = url;
+        }
+
+        // Autoplay often works only after a user gesture; our "Play" click counts as one.
+        await video.play().catch(() => null);
+      } catch (e) {
+        if (cancelled) return;
+        console.error(e);
+        setPlayerError(t('title.watchPlayerFailed'));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener('error', onVideoError);
+      try {
+        if (hls?.destroy) hls.destroy();
+      } catch {
+        // ignore
+      }
+      try {
+        video.pause();
+      } catch {
+        // ignore
+      }
+      video.removeAttribute('src');
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerState.open, playerState.url, lang]);
+
+  function closePlayer() {
+    setPlayerState({ open: false, url: '', label: '' });
+    setPlayerError('');
+  }
+
+  function qualityLabel(video) {
+    const q = video?.quality;
+    if (typeof q === 'number' && Number.isFinite(q) && q > 0) return `${q}p`;
+    if (typeof q === 'string' && String(q).trim()) return `${String(q).trim()}p`;
+    return t('title.watchAuto');
+  }
+
+  async function watchFindTitles(page = 1) {
     const initData = getInitData();
     if (!initData) {
       setWatchState((s) => ({ ...s, error: t('dashboard.errNoInitData') || 'No initData' }));
       return;
     }
 
-    const q = String(d?.title || '').trim();
-    if (!q) return;
+    if (!uid) return;
 
     setWatchState((s) => ({ ...s, loading: true, error: '', step: 'idle' }));
     const response = await fetch('/api/webapp/watch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, q, limit: 5 })
+      body: JSON.stringify({ initData, uid, limit: 5, page })
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
@@ -111,11 +230,25 @@ export default function TitlePage() {
     }
 
     const items = Array.isArray(json.items) ? json.items : [];
+    const map = json.map || null;
+    const currentPage = Number(json.page) || 1;
+    const pages = Number(json.pages) || 1;
+    const total = Number.isFinite(Number(json.total)) ? Number(json.total) : null;
+
+    if (json.autoPick?.animeRef) {
+      await watchPickTitle({ ...json.autoPick, _map: map }).catch(() => null);
+      return;
+    }
+
     setWatchState((s) => ({
       ...s,
       loading: false,
       step: 'titles',
+      map,
       titles: items,
+      page: currentPage,
+      pages,
+      total,
       episodes: [],
       sources: [],
       videos: [],
@@ -129,6 +262,27 @@ export default function TitlePage() {
     const initData = getInitData();
     const animeRef = String(item?.animeRef || '').trim();
     if (!initData || !animeRef) return;
+
+    // Persist binding for fast access next time (best-effort).
+    try {
+      const watchSource = String(item?.source || '').trim();
+      const watchUrl = String(item?.url || '').trim();
+      if (uid && watchSource && watchUrl) {
+        fetch('/api/webapp/watch/bind', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initData,
+            uid,
+            watchSource,
+            watchUrl,
+            watchTitle: String(item?.title || '').trim() || null
+          })
+        }).catch(() => null);
+      }
+    } catch {
+      // ignore
+    }
 
     setWatchState((s) => ({ ...s, loading: true, error: '', animeRef, step: 'titles' }));
     const response = await fetch('/api/webapp/watch/episodes', {
@@ -152,6 +306,38 @@ export default function TitlePage() {
       episodeNum: '',
       sourceRef: ''
     }));
+  }
+
+  async function watchRebind() {
+    const initData = getInitData();
+    if (!initData || !uid) return;
+
+    try {
+      await fetch('/api/webapp/watch/unbind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ initData, uid })
+      });
+    } catch {
+      // ignore
+    }
+
+    setWatchState((s) => ({
+      ...s,
+      loading: false,
+      error: '',
+      step: 'idle',
+      animeRef: '',
+      episodeNum: '',
+      sourceRef: '',
+      map: null,
+      titles: [],
+      episodes: [],
+      sources: [],
+      videos: []
+    }));
+
+    await watchFindTitles().catch(() => null);
   }
 
   async function watchPickEpisode(ep) {
@@ -208,7 +394,7 @@ export default function TitlePage() {
   }
 
   return (
-    <main className="app">
+    <main className={`app ${playerState.open ? 'has-player' : ''}`}>
       <header className="topbar">
         <button className="btn" type="button" onClick={() => router.push(mt ? `/?mt=${encodeURIComponent(mt)}` : '/')}>
           {t('title.back')}
@@ -223,7 +409,22 @@ export default function TitlePage() {
             className="select select--sm"
             value={lang}
             onChange={(e) => {
-              dispatch(setLanguage(e.target.value));
+              const next = e.target.value;
+              dispatch(setLanguage(next));
+
+              // Best-effort: persist preferred language to backend so bot/dashboard match UI language.
+              try {
+                const initData = getInitData();
+                if (initData) {
+                  fetch('/api/webapp/lang', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ initData, lang: next })
+                  }).catch(() => null);
+                }
+              } catch {
+                // ignore
+              }
             }}
             aria-label={t('common.language')}
           >
@@ -287,16 +488,45 @@ export default function TitlePage() {
                 {t('title.watchFind')}
               </button>
 
+              {watchState.step !== 'idle' || watchState.map ? (
+                <button className="select" type="button" disabled={watchState.loading} onClick={() => watchRebind().catch(() => null)}>
+                  {t('title.watchRebind')}
+                </button>
+              ) : null}
+
               {watchState.error ? <p className="meta">{watchState.error}</p> : null}
 
               {watchState.step === 'titles' && watchState.titles?.length ? (
                 <>
-                  <p className="meta">{t('title.watchPickTitle')}</p>
+                  <p className="meta">
+                    {t('title.watchPickTitle')}
+                    {watchState.pages > 1 ? ` · ${watchState.page}/${watchState.pages}` : ''}
+                  </p>
                   {watchState.titles.map((it, idx) => (
                     <button className="select" key={`${it.source}:${idx}`} type="button" onClick={() => watchPickTitle(it).catch(() => null)}>
                       {it.title || `${it.source}`}
                     </button>
                   ))}
+                  {watchState.pages > 1 ? (
+                    <div className="row">
+                      <button
+                        className="select"
+                        type="button"
+                        disabled={watchState.loading || watchState.page <= 1}
+                        onClick={() => watchFindTitles(Math.max(1, (watchState.page || 1) - 1)).catch(() => null)}
+                      >
+                        {t('title.watchPrev')}
+                      </button>
+                      <button
+                        className="select"
+                        type="button"
+                        disabled={watchState.loading || watchState.page >= watchState.pages}
+                        onClick={() => watchFindTitles((watchState.page || 1) + 1).catch(() => null)}
+                      >
+                        {t('title.watchNext')}
+                      </button>
+                    </div>
+                  ) : null}
                 </>
               ) : null}
 
@@ -325,25 +555,60 @@ export default function TitlePage() {
               {watchState.step === 'videos' && watchState.videos?.length ? (
                 <>
                   <p className="meta">{t('title.watchPickQuality')}</p>
-                  {watchState.videos.map((v, idx) => (
-                    <button
-                      className="btn"
-                      key={`${idx}:${v.url}`}
-                      type="button"
-                      onClick={() => {
-                        openLink(v.url);
-                      }}
-                    >
-                      {t('title.watchOpen')}{v.quality ? ` · ${v.quality}p` : ''}{v.type ? ` · ${v.type}` : ''}
-                    </button>
-                  ))}
-                  {watchState.videos.some((v) => v.headers && Object.keys(v.headers).length) ? (
-                    <p className="meta">{t('title.watchBlocked')}</p>
-                  ) : null}
+                  <div className="row">
+                    {watchState.videos.map((v, idx) =>
+                      canInlinePlay(v) ? (
+                        <button
+                          className="select"
+                          key={`${idx}:${v.url}`}
+                          type="button"
+                          onClick={() => {
+                            setPlayerState({
+                              open: true,
+                              url: String(v.url || ''),
+                              label: qualityLabel(v)
+                            });
+                          }}
+                        >
+                          {qualityLabel(v)}
+                        </button>
+                      ) : null
+                    )}
+                  </div>
                 </>
               ) : null}
             </div>
           </section>
+
+          {playerState.open ? (
+            <section className="player-dock" role="dialog" aria-modal="false" aria-label={t('title.watchPlayerTitle')}>
+              <div className="player-dock-inner">
+                <div className="player-dock-head">
+                  <p className="player-dock-title">
+                    {t('title.watchPlayerTitle')}
+                    {playerState.label ? ` · ${playerState.label}` : ''}
+                  </p>
+                  <button className="select select--sm" type="button" onClick={closePlayer}>
+                    {t('title.close')}
+                  </button>
+                </div>
+
+                <div className="player-dock-body">
+                  <video ref={videoRef} className="player" controls playsInline />
+                  {playerError ? (
+                    <>
+                      <p className="meta">{playerError}</p>
+                      <p className="meta">
+                        <a className="link" href={playerState.url} target="_blank" rel="noreferrer">
+                          {playerState.url}
+                        </a>
+                      </p>
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </section>
+          ) : null}
         </>
       ) : null}
     </main>

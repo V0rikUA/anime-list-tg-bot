@@ -1,4 +1,5 @@
 fastapi==0.110.0
 uvicorn[standard]==0.27.1
-anicli-api==4.3
-
+# PyPI package is `anicli-api` and current public versions are 0.x.
+# Pin to a known-good release to keep our wrapper stable.
+anicli-api==0.8.11

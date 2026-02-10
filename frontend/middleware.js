@@ -13,6 +13,8 @@ export function middleware(request) {
 
   // Allow explicit debug mode and local development.
   if (url.searchParams.get('debug') === '1') return NextResponse.next();
+  // In dev mode we don't gate access: tunnels/preview URLs should "just work".
+  if (process.env.NODE_ENV !== 'production') return NextResponse.next();
   if (isLocalhost(request.headers.get('host'))) return NextResponse.next();
 
   const expected = String(process.env.MINIAPP_ACCESS_TOKEN || '').trim();

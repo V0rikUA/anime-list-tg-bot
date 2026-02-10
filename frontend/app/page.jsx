@@ -49,6 +49,10 @@ export default function MiniAppDashboard() {
   const [data, setData] = useState(null);
   const [inviteStatus, setInviteStatus] = useState('');
   const [inviteLink, setInviteLink] = useState('');
+  const [searchRaw, setSearchRaw] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchState, setSearchState] = useState({ loading: false, error: '', items: [], page: 1, pages: 1, total: 0 });
+  const [searchToast, setSearchToast] = useState('');
 
   useEffect(() => {
     // Avoid useSearchParams() to keep static build happy (no Suspense requirement).
@@ -61,6 +65,33 @@ export default function MiniAppDashboard() {
     setMetaText(t('dashboard.loadingProfile'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
+
+  function getInitData() {
+    try {
+      const tg = window.Telegram?.WebApp;
+      const initData = typeof tg?.initData === 'string' ? tg.initData.trim() : '';
+      return initData || '';
+    } catch {
+      return '';
+    }
+  }
+
+  function extractQueryAfterSpace(raw) {
+    const s = String(raw || '');
+    const idx = s.indexOf(' ');
+    if (idx < 0) return '';
+    return s.slice(idx + 1).trim();
+  }
+
+  function mapTelegramAuthError(code) {
+    const c = String(code || '').trim();
+    if (!c) return '';
+    if (c === 'expired_auth_date') return t('dashboard.searchSessionExpired');
+    if (c === 'invalid_hash') return t('dashboard.searchSessionExpired');
+    if (c === 'missing_hash') return t('dashboard.searchSessionExpired');
+    if (c === 'missing_user_id') return t('dashboard.searchSessionExpired');
+    return '';
+  }
 
   async function fetchDashboardSecurely() {
     const tg = window.Telegram?.WebApp;
@@ -112,7 +143,23 @@ export default function MiniAppDashboard() {
   }, [lang]);
 
   function onLangChange(e) {
-    dispatch(setLanguage(e.target.value));
+    const next = e.target.value;
+    dispatch(setLanguage(next));
+
+    // Best-effort: persist preferred language to backend so titles/search match UI language.
+    try {
+      const tg = window.Telegram?.WebApp;
+      const initData = typeof tg?.initData === 'string' ? tg.initData.trim() : '';
+      if (initData) {
+        fetch('/api/webapp/lang', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initData, lang: next })
+        }).catch(() => null);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   function onThemeChange(e) {
@@ -196,6 +243,121 @@ export default function MiniAppDashboard() {
     } catch {
       // ignore
     }
+  }
+
+  async function runLiveSearch({ q, page }) {
+    const initData = getInitData();
+    if (!initData) {
+      throw new Error(t('dashboard.errNoInitData'));
+    }
+    const response = await fetch('/api/webapp/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, q, limit: 5, page })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+    }
+    return json;
+  }
+
+  async function triggerSearch(qRaw, page = 1) {
+    const q = String(qRaw || '').trim();
+    if (!q) return;
+    setSearchState((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const json = await runLiveSearch({ q, page });
+      setSearchState({
+        loading: false,
+        error: '',
+        items: Array.isArray(json.items) ? json.items : [],
+        page: Number(json.page) || page,
+        pages: Number(json.pages) || 1,
+        total: Number(json.total) || 0
+      });
+      setActiveTab('search');
+    } catch (e) {
+      setSearchState((s) => ({ ...s, loading: false, error: e?.message || t('dashboard.errLoad') }));
+    }
+  }
+
+  async function addToList(uid, listType) {
+    const initData = getInitData();
+    if (!initData) throw new Error(t('dashboard.errNoInitData'));
+    const response = await fetch('/api/webapp/list/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, uid, listType })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+    }
+  }
+
+  async function addRecommendation(uid) {
+    const initData = getInitData();
+    if (!initData) throw new Error(t('dashboard.errNoInitData'));
+    const response = await fetch('/api/webapp/recommend/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, uid })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+    }
+  }
+
+  // Live search: call API only when user typed a space and some query after it.
+  useEffect(() => {
+    const q = extractQueryAfterSpace(searchRaw);
+    setSearchQuery(q);
+    setSearchToast('');
+
+    if (!q) {
+      setSearchState({ loading: false, error: '', items: [], page: 1, pages: 1, total: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      // Avoid duplicate requests if the user submits manually on Enter.
+      setSearchState((s) => ({ ...s, loading: true, error: '' }));
+      runLiveSearch({ q, page: 1 })
+        .then((json) => {
+          if (cancelled) return;
+          setSearchState({
+            loading: false,
+            error: '',
+            items: Array.isArray(json.items) ? json.items : [],
+            page: Number(json.page) || 1,
+            pages: Number(json.pages) || 1,
+            total: Number(json.total) || 0
+          });
+          setActiveTab('search');
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setSearchState((s) => ({ ...s, loading: false, error: e?.message || t('dashboard.errLoad') }));
+        });
+    }, 350);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchRaw, lang]);
+
+  async function searchGoToPage(nextPage) {
+    const q = String(searchQuery || '').trim();
+    if (!q) return;
+    await triggerSearch(q, nextPage);
   }
 
   function renderAnimeList(list, withWatchStats) {
@@ -328,6 +490,7 @@ export default function MiniAppDashboard() {
 
       <section className="tabs card">
         <div className="tab-head">
+          <button className="tab-btn" data-tab="search" onClick={() => setActiveTab('search')} type="button">{t('dashboard.search')}</button>
           <button className="tab-btn active" data-tab="watched" onClick={() => setActiveTab('watched')} type="button">{t('dashboard.watched')}</button>
           <button className="tab-btn" data-tab="planned" onClick={() => setActiveTab('planned')} type="button">{t('dashboard.planned')}</button>
           <button className="tab-btn" data-tab="favorites" onClick={() => setActiveTab('favorites')} type="button">{t('dashboard.favorites')}</button>
@@ -335,6 +498,120 @@ export default function MiniAppDashboard() {
           <button className="tab-btn" data-tab="friends" onClick={() => setActiveTab('friends')} type="button">{t('dashboard.friends')}</button>
         </div>
         <div className="tab-body">
+          <div id="tab-search" className="tab-panel">
+            <div className="search-box">
+              <p className="meta">{t('dashboard.searchHint')}</p>
+              <div className="search-row">
+                <input
+                  className="search-input"
+                  value={searchRaw}
+                  onChange={(e) => setSearchRaw(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    e.preventDefault();
+                    // Manual submit: allow searching by the current query-after-space,
+                    // otherwise fallback to searching by the whole input.
+                    const q = String(searchQuery || '').trim() || String(searchRaw || '').trim();
+                    triggerSearch(q, 1).catch(() => null);
+                  }}
+                  placeholder={t('dashboard.searchPlaceholder')}
+                  enterKeyHint="search"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck="false"
+                />
+              </div>
+
+              {searchRaw.trim() && !searchQuery ? <p className="meta">{t('dashboard.searchWaitSpace')}</p> : null}
+              {searchState.loading ? <p className="meta">{t('dashboard.searchLoading')}</p> : null}
+              {searchState.error ? <p className="meta">{searchState.error}</p> : null}
+              {searchToast ? <p className="meta">{searchToast}</p> : null}
+
+              {searchQuery && !searchState.loading && (!searchState.items || searchState.items.length === 0) ? (
+                <p className="empty">{t('dashboard.searchEmpty')}</p>
+              ) : null}
+
+              {(searchState.items || []).map((it) => (
+                <article className="item" key={it.uid}>
+                  <div className="item-row">
+                    {it.imageSmall ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img className="thumb" src={it.imageSmall} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="thumb" />
+                    )}
+                    <div>
+                      <p className="item-title">{it.title}</p>
+                      <p className="item-sub">{it.uid}</p>
+                      <div className="search-actions">
+                        <button
+                          className="btn-chip"
+                          type="button"
+                          onClick={() => {
+                            setSearchToast('');
+                            addToList(it.uid, 'planned')
+                              .then(() => {
+                                setSearchToast(t('dashboard.added'));
+                                load().catch(() => null);
+                              })
+                              .catch((e) => setSearchToast(e?.message || t('dashboard.addFailed')));
+                          }}
+                        >
+                          {t('dashboard.addPlanned')}
+                        </button>
+                        <button
+                          className="btn-chip"
+                          type="button"
+                          onClick={() => {
+                            setSearchToast('');
+                            addToList(it.uid, 'favorite')
+                              .then(() => {
+                                setSearchToast(t('dashboard.added'));
+                                load().catch(() => null);
+                              })
+                              .catch((e) => setSearchToast(e?.message || t('dashboard.addFailed')));
+                          }}
+                        >
+                          {t('dashboard.addFavorite')}
+                        </button>
+                        <button
+                          className="btn-chip"
+                          type="button"
+                          onClick={() => {
+                            setSearchToast('');
+                            addRecommendation(it.uid)
+                              .then(() => {
+                                setSearchToast(t('dashboard.added'));
+                                load().catch(() => null);
+                              })
+                              .catch((e) => setSearchToast(e?.message || t('dashboard.addFailed')));
+                          }}
+                        >
+                          {t('dashboard.addRecommend')}
+                        </button>
+                        <Link className="btn-chip" href={withMt(`/title/${encodeURIComponent(it.uid)}`)}>
+                          {t('title.open')}
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              ))}
+
+              {searchState.pages > 1 ? (
+                <div className="search-pager">
+                  <button className="btn-chip" type="button" disabled={searchState.loading || searchState.page <= 1} onClick={() => searchGoToPage(Math.max(1, (searchState.page || 1) - 1))}>
+                    {t('dashboard.searchPrev')}
+                  </button>
+                  <p className="meta">{searchState.page}/{searchState.pages}</p>
+                  <button className="btn-chip" type="button" disabled={searchState.loading || searchState.page >= searchState.pages} onClick={() => searchGoToPage((searchState.page || 1) + 1)}>
+                    {t('dashboard.searchNext')}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
           <div id="tab-watched" className="tab-panel active">{renderAnimeList(data?.watched, true)}</div>
           <div id="tab-planned" className="tab-panel">{renderAnimeList(data?.planned, false)}</div>
           <div id="tab-favorites" className="tab-panel">{renderAnimeList(data?.favorites, false)}</div>

@@ -2,13 +2,49 @@ import os
 import time
 import secrets
 import importlib
-from typing import Any, Dict, List, Optional
+import inspect
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from .ranking import rank_results
+
 
 APP_NAME = "watch-api"
+WATCH_API_TTL_SEC = int(os.environ.get("WATCH_API_TTL_SEC", "3600") or "3600")
+WATCH_API_TTL_SEC = max(60, WATCH_API_TTL_SEC)
+
+# In-memory cache for extractor search results (Python objects) to avoid hammering sources.
+# Keyed by (source, query). Values expire roughly with STORE TTL.
+_SEARCH_CACHE: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+
+def _gc_search_cache() -> None:
+    t = _now()
+    dead: List[Tuple[str, str]] = []
+    for k, v in _SEARCH_CACHE.items():
+        if t > float(v.get("expires_at", 0) or 0):
+            dead.append(k)
+    for k in dead:
+        _SEARCH_CACHE.pop(k, None)
+
+
+def _cache_get_search(source: str, query: str) -> Optional[list]:
+    hit = _SEARCH_CACHE.get((source, query))
+    if not hit:
+        return None
+    if _now() > float(hit.get("expires_at", 0) or 0):
+        _SEARCH_CACHE.pop((source, query), None)
+        return None
+    return hit.get("results") or None
+
+
+def _cache_set_search(source: str, query: str, results: list) -> None:
+    _SEARCH_CACHE[(source, query)] = {
+        "results": results,
+        "expires_at": _now() + WATCH_API_TTL_SEC,
+    }
 
 
 def _now() -> float:
@@ -49,7 +85,7 @@ class _Store:
             self._items.pop(k, None)
 
 
-STORE = _Store(ttl_seconds=int(os.environ.get("WATCH_API_TTL_SEC", "3600") or "3600"))
+STORE = _Store(ttl_seconds=WATCH_API_TTL_SEC)
 
 
 def _safe_str(v: Any, limit: int = 2000) -> str:
@@ -59,18 +95,42 @@ def _safe_str(v: Any, limit: int = 2000) -> str:
     return s
 
 
+async def _maybe_await(v: Any) -> Any:
+    if inspect.isawaitable(v):
+        return await v
+    return v
+
+
+async def _call(obj: Any, async_name: str, sync_name: str, *args: Any, **kwargs: Any) -> Any:
+    """
+    `anicli_api` has changed its public API across 0.x; some versions expose async methods
+    (`a_*`) and others expose sync methods without the prefix. This helper tries both.
+    """
+    fn = getattr(obj, async_name, None) or getattr(obj, sync_name, None)
+    if fn is None:
+        raise AttributeError(f"missing method {async_name}/{sync_name}")
+    return await _maybe_await(fn(*args, **kwargs))
+
+
 def _get_extractor(source: str):
-    # anicli_api sources live under anicli_api.source.<name>
-    # Each module exports Extractor.
-    name = _safe_str(source, 64).lower()
-    if not name or any(c for c in name if not (c.isalnum() or c in ("_", "-"))):
+    # anicli_api sources have moved between `anicli_api.source.*` and `anicli_api.sources.*`
+    # across 0.x releases. Try both.
+    raw = _safe_str(source, 64).lower()
+    name = raw.replace("-", "_")
+    if not name or any(c for c in name if not (c.isalnum() or c == "_")):
         raise ValueError("invalid source")
-    mod_name = f"anicli_api.source.{name}"
-    mod = importlib.import_module(mod_name)
-    Extractor = getattr(mod, "Extractor", None)
-    if Extractor is None:
-        raise ValueError("Extractor not found")
-    return Extractor()
+    last_err: Optional[Exception] = None
+    for base in ("anicli_api.source", "anicli_api.sources"):
+        try:
+            mod = importlib.import_module(f"{base}.{name}")
+            Extractor = getattr(mod, "Extractor", None)
+            if Extractor is None:
+                raise ValueError("Extractor not found")
+            return Extractor()
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            continue
+    raise ValueError(f"failed to import extractor '{raw}'") from last_err
 
 
 class HealthOut(BaseModel):
@@ -98,6 +158,11 @@ class SearchItem(BaseModel):
 class SearchOut(BaseModel):
     ok: bool = True
     items: List[SearchItem]
+    page: int = 1
+    limit: int = 5
+    total: int = 0
+    pages: int = 1
+    sourceUsed: Optional[str] = None
 
 
 class EpisodeItem(BaseModel):
@@ -139,6 +204,7 @@ app = FastAPI(title=APP_NAME)
 @app.get("/v1/health", response_model=HealthOut)
 async def health():
     STORE.gc()
+    _gc_search_cache()
     return {"ok": True}
 
 
@@ -160,8 +226,12 @@ async def search(
     q: str = Query(..., min_length=1, max_length=200),
     source: Optional[str] = Query(None, min_length=1, max_length=64),
     limit: int = Query(5, ge=1, le=10),
+    page: int = Query(1, ge=1, le=100),
+    rank: bool = Query(True),
+    rank_q: Optional[str] = Query(None, min_length=1, max_length=200),
 ):
     STORE.gc()
+    _gc_search_cache()
     query = _safe_str(q, 200)
     sources_to_try: List[str]
     if source:
@@ -171,13 +241,34 @@ async def search(
 
     items: List[SearchItem] = []
     errors: List[str] = []
+    total = 0
+    pages = 1
+    used_source: Optional[str] = None
+
+    offset = (int(page) - 1) * int(limit)
     for src in sources_to_try:
         try:
-            extractor = _get_extractor(src)
-            results = await extractor.a_search(query)  # type: ignore[attr-defined]
-            if not results:
+            results = _cache_get_search(src, query)
+            if results is None:
+                extractor = _get_extractor(src)
+                results = await _call(extractor, "a_search", "search", query)
+                results = list(results or [])
+                _cache_set_search(src, query, results)
+
+            total = len(results or [])
+            if total <= 0:
                 continue
-            for r in results[:limit]:
+
+            pages = max(1, (total + int(limit) - 1) // int(limit))
+            used_source = src
+
+            ranked = results or []
+            if rank:
+                rq = _safe_str(rank_q or q, 200)
+                if rq:
+                    ranked = rank_results(rq, ranked, source=src)
+
+            for r in (ranked or [])[offset : offset + int(limit)]:
                 # Store the search result object so we can resolve anime/episodes later.
                 anime_ref = STORE.put("search", r, meta={"source": src})
                 items.append(
@@ -189,15 +280,23 @@ async def search(
                         animeRef=anime_ref,
                     )
                 )
-            if items:
-                break
+            break
         except Exception as e:  # noqa: BLE001
             errors.append(f"{src}: {type(e).__name__}")
             continue
 
-    if not items and errors:
+    if total <= 0 and errors:
         raise HTTPException(status_code=502, detail="; ".join(errors))
-    return {"ok": True, "items": items}
+
+    return {
+        "ok": True,
+        "items": items,
+        "page": int(page),
+        "limit": int(limit),
+        "total": int(total),
+        "pages": int(pages),
+        "sourceUsed": used_source,
+    }
 
 
 @app.get("/v1/episodes", response_model=EpisodesOut)
@@ -209,8 +308,8 @@ async def episodes(animeRef: str = Query(..., min_length=16, max_length=128)):
 
     search_obj = item["obj"]
     try:
-        anime = await search_obj.a_get_anime()  # type: ignore[attr-defined]
-        eps = await anime.a_get_episodes()  # type: ignore[attr-defined]
+        anime = await _call(search_obj, "a_get_anime", "get_anime")
+        eps = await _call(anime, "a_get_episodes", "get_episodes")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch episodes: {type(e).__name__}") from e
 
@@ -237,8 +336,8 @@ async def sources_for_episode(
 
     search_obj = item["obj"]
     try:
-        anime = await search_obj.a_get_anime()  # type: ignore[attr-defined]
-        eps = await anime.a_get_episodes()  # type: ignore[attr-defined]
+        anime = await _call(search_obj, "a_get_anime", "get_anime")
+        eps = await _call(anime, "a_get_episodes", "get_episodes")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch episodes: {type(e).__name__}") from e
 
@@ -253,7 +352,7 @@ async def sources_for_episode(
         raise HTTPException(status_code=404, detail="episode not found")
 
     try:
-        srcs = await target.a_get_sources()  # type: ignore[attr-defined]
+        srcs = await _call(target, "a_get_sources", "get_sources")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch sources: {type(e).__name__}") from e
 
@@ -280,7 +379,7 @@ async def videos(sourceRef: str = Query(..., min_length=16, max_length=128)):
 
     src_obj = item["obj"]
     try:
-        vids = await src_obj.a_get_videos()  # type: ignore[attr-defined]
+        vids = await _call(src_obj, "a_get_videos", "get_videos")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"failed to fetch videos: {type(e).__name__}") from e
 
@@ -299,4 +398,3 @@ async def videos(sourceRef: str = Query(..., min_length=16, max_length=128)):
         )
 
     return {"ok": True, "videos": out}
-

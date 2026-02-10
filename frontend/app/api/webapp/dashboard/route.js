@@ -3,10 +3,10 @@ export async function POST(request) {
   // Defaulting to localhost keeps dev UX simple, while Docker/production can still override via env.
   const backend =
     (process.env.BACKEND_URL || '').trim() ||
-    (process.env.NODE_ENV !== 'production' ? 'http://localhost:4000' : '');
+    (process.env.NODE_ENV !== 'production' ? 'http://localhost:8080' : '');
   if (!backend) {
     return Response.json(
-      { ok: false, error: 'BACKEND_URL is not set (e.g. http://localhost:4000)' },
+      { ok: false, error: 'BACKEND_URL is not set (e.g. http://localhost:8080)' },
       { status: 500 }
     );
   }

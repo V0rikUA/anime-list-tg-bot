@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 
 const JIKAN_ANIME = 'https://api.jikan.moe/v4/anime';
-const ANILIST_URL = 'https://graphql.anilist.co';
+const SHIKIMORI_API = 'https://shikimori.one/api';
+const SHIKIMORI_WEB = 'https://shikimori.one';
+const ANILIST_URL = 'https://graphql.anilist.co'; // legacy (for old anilist:<id> links)
 
 /**
  * Tiny in-memory cache to reduce translation calls / rate limits.
@@ -94,7 +96,7 @@ async function translateText(text, targetLang) {
   // Unofficial endpoint. If it fails, we fall back to English.
   const url = new URL('https://translate.googleapis.com/translate_a/single');
   url.searchParams.set('client', 'gtx');
-  url.searchParams.set('sl', 'en');
+  url.searchParams.set('sl', 'auto');
   url.searchParams.set('tl', lang);
   url.searchParams.set('dt', 't');
   url.searchParams.set('q', t);
@@ -115,11 +117,11 @@ async function translateText(text, targetLang) {
 
 /**
  * @param {unknown} uidRaw
- * @returns {{source: 'jikan'|'anilist', id: number, uid: string} | null}
+ * @returns {{source: 'jikan'|'shikimori'|'anilist', id: number, uid: string} | null}
  */
 function parseUid(uidRaw) {
   const uid = String(uidRaw || '').trim();
-  const m = uid.match(/^(jikan|anilist):(\d+)$/);
+  const m = uid.match(/^(jikan|shikimori|anilist):(\d+)$/);
   if (!m) return null;
   return { source: m[1], id: Number(m[2]), uid };
 }
@@ -219,19 +221,67 @@ async function fetchAniListDetails(id) {
   };
 }
 
+function shikimoriHeaders() {
+  const ua = (process.env.SHIKIMORI_USER_AGENT || '').trim() || 'anime-miniapp-dashboard';
+  return { Accept: 'application/json', 'User-Agent': ua };
+}
+
+function shikimoriUrl(pathname) {
+  return `${SHIKIMORI_API}${pathname.startsWith('/') ? '' : '/'}${pathname}`;
+}
+
+function shikimoriAnimeLink(id) {
+  return `${SHIKIMORI_WEB}/animes/${id}`;
+}
+
+async function fetchShikimoriDetails(id) {
+  const res = await fetch(shikimoriUrl(`/animes/${id}`), { headers: shikimoriHeaders() });
+  if (!res.ok) throw new Error(`Shikimori failed: ${res.status}`);
+  const a = await res.json().catch(() => null);
+
+  const titleEn = String(a?.name || '').trim(); // Shikimori: `name`
+  const titleRu = String(a?.russian || '').trim(); // Shikimori: `russian`
+  const title = titleEn || titleRu || `shikimori:${id}`;
+
+  return {
+    source: 'shikimori',
+    externalId: String(id),
+    title,
+    titleEn: titleEn || null,
+    titleRu: titleRu || null,
+    episodes: a?.episodes ?? null,
+    seasons: null,
+    status: a?.status ?? null,
+    score: a?.score ? Number(a.score) : null,
+    url: shikimoriAnimeLink(id),
+    imageSmall: a?.image?.preview ? `${SHIKIMORI_WEB}${a.image.preview}` : null,
+    imageLarge: a?.image?.original ? `${SHIKIMORI_WEB}${a.image.original}` : null,
+    synopsisEn: toPlainText(a?.description || '')
+  };
+}
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const parsed = parseUid(searchParams.get('uid'));
   const lang = normLang(searchParams.get('lang'));
 
   if (!parsed) {
-    return Response.json({ ok: false, error: 'uid is required (jikan:<id> or anilist:<id>)' }, { status: 400 });
+    return Response.json({ ok: false, error: 'uid is required (jikan:<id> or shikimori:<id>)' }, { status: 400 });
   }
 
   try {
     const details = parsed.source === 'jikan'
       ? await fetchJikanDetails(parsed.id)
-      : await fetchAniListDetails(parsed.id);
+      : (parsed.source === 'shikimori' ? await fetchShikimoriDetails(parsed.id) : await fetchAniListDetails(parsed.id));
+
+    const titleEn = String(details.titleEn || details.title || '').trim();
+    const [titleRu, titleUk] = await Promise.all([
+      String(details.titleRu || '').trim()
+        ? Promise.resolve(String(details.titleRu).trim())
+        : (titleEn ? translateText(titleEn, 'ru') : Promise.resolve('')),
+      titleEn ? translateText(titleEn, 'uk') : Promise.resolve('')
+    ]);
+    const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
 
     const synopsis = details.synopsisEn ? await translateText(details.synopsisEn, lang) : '';
 
@@ -240,6 +290,10 @@ export async function GET(request) {
       uid: parsed.uid,
       lang,
       ...details,
+      title,
+      titleEn: titleEn || null,
+      titleRu: titleRu || null,
+      titleUk: titleUk || null,
       synopsis
     });
   } catch (error) {
