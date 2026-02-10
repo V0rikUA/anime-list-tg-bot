@@ -31,7 +31,7 @@ docker compose up --build
 Dev (hot reload):
 
 ```bash
-docker compose -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Endpoints:

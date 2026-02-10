@@ -96,7 +96,7 @@ Gateway health: `http://localhost:8080/healthz`
 ## Dev (Docker + Postgres + Hot Reload)
 
 ```bash
-docker compose -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Dev compose starts services with `npm run dev` and mounts code into containers.
