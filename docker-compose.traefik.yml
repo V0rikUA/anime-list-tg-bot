@@ -25,6 +25,8 @@ services:
   # In proxy mode, don't expose internal ports to the host.
   gateway:
     ports: []
+    networks:
+      - default
     labels:
       - traefik.enable=true
       - traefik.http.services.gateway.loadbalancer.server.port=8080
@@ -42,6 +44,8 @@ services:
 
   frontend:
     ports: []
+    networks:
+      - default
     labels:
       - traefik.enable=true
       - traefik.http.services.frontend.loadbalancer.server.port=3000
@@ -58,3 +62,8 @@ services:
 volumes:
   traefik_letsencrypt:
 
+networks:
+  # Make the `proxy` network self-contained when running Traefik from this compose file.
+  proxy:
+    name: animebot_proxy
+    external: false

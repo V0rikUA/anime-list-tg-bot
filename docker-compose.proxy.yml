@@ -19,9 +19,13 @@ services:
   # In proxy mode, don't expose internal ports to the host.
   gateway:
     ports: []
+    networks:
+      - default
 
   frontend:
     ports: []
+    networks:
+      - default
 
   postgres:
     ports: []
@@ -30,3 +34,8 @@ volumes:
   caddy_data:
   caddy_config:
 
+networks:
+  # Make the `proxy` network self-contained for this mode.
+  proxy:
+    name: animebot_proxy
+    external: false

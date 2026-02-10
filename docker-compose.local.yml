@@ -16,3 +16,9 @@ services:
     networks:
       - default
 
+networks:
+  # Make the `proxy` network self-contained for local runs.
+  # Production expects an *external* network named `proxy`.
+  proxy:
+    name: animebot_local_proxy
+    external: false
