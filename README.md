@@ -81,6 +81,30 @@ Run:
 docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
 ```
 
+## Production (Debian VM + External Traefik)
+
+If you already run Traefik separately (recommended), use `docker-compose.prod.yml` to:
+- remove host port exposure for `postgres`, `gateway`, `frontend`
+- attach `gateway` and `frontend` to an external `proxy` network
+- provide Traefik labels for `api.<domain>` and `mini.<domain>`
+
+Requirements:
+- Create external network once: `docker network create proxy`
+- Ensure your Traefik container is connected to the same `proxy` network
+
+Required `.env`:
+- `MINI_HOST=mini.indexforge.site`
+- `API_HOST=api.indexforge.site`
+- `TRAEFIK_ENTRYPOINT=websecure` (or your Traefik HTTPS entrypoint)
+- `TRAEFIK_CERT_RESOLVER=le` (or your cert resolver name)
+- `TRAEFIK_DOCKER_NETWORK=proxy`
+
+Run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+```
+
 ## Microservices (MVP) + Gateway
 
 This repo uses an HTTP-only microservices layout (no broker) with:
