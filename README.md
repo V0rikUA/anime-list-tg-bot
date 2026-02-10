@@ -38,7 +38,7 @@ Also set Mini App URL in BotFather:
 ## Run (Docker + Postgres)
 
 ```bash
-docker compose --env-file .env.local -f docker-compose.yml -f docker/docker-compose.local.yml up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dashboard (Next.js): `http://localhost:3000/`
@@ -62,7 +62,7 @@ Steps:
 4. Start stack (only Caddy publishes ports to the host):
 
 ```bash
-docker compose -f docker-compose.yml -f docker/docker-compose.proxy.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
 ```
 
 TLS certificates are obtained automatically by Caddy and stored in Docker volumes.
@@ -79,7 +79,7 @@ Required `.env`:
 Run:
 
 ```bash
-docker compose -f docker-compose.yml -f docker/docker-compose.traefik.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
 ```
 
 ## Production (Debian VM + External Traefik)
@@ -121,7 +121,7 @@ Gateway health: `http://localhost:8080/healthz`
 ## Dev (Docker + Postgres + Hot Reload)
 
 ```bash
-docker compose --env-file .env.local -f docker/docker-compose.dev.yml --profile frontend up --build
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Dev compose starts services with `npm run dev` and mounts code into containers.
@@ -223,7 +223,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 
 ## Cloudflared quick test
 
-1. Start services: `docker compose --env-file .env.local -f docker-compose.yml -f docker/docker-compose.local.yml up -d --build`
+1. Start services: `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up -d --build`
 2. Run tunnels (frontend + gateway):
 
 ```bash

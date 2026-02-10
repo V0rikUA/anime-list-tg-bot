@@ -18,13 +18,13 @@ services:
 
   watch-api:
     build:
-      context: ../watch-api
+      context: ./watch-api
       dockerfile: Dockerfile
     restart: unless-stopped
 
   catalog:
     build:
-      context: ../catalog-service
+      context: ./catalog-service
       dockerfile: Dockerfile
     restart: unless-stopped
     command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
@@ -35,12 +35,12 @@ services:
       CATALOG_CACHE_MAX: ${CATALOG_CACHE_MAX:-500}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
     volumes:
-      - ../catalog-service:/app:delegated
+      - ./catalog-service:/app:delegated
       - /app/node_modules
 
   list:
     build:
-      context: ../list-service
+      context: ./list-service
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -52,12 +52,12 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
     volumes:
-      - ../list-service:/app:delegated
+      - ./list-service:/app:delegated
       - /app/node_modules
 
   webapp:
     build:
-      context: ../webapp-service
+      context: ./webapp-service
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -85,12 +85,12 @@ services:
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
       DEBUG_WEBAPP_LOGS: "1"
     volumes:
-      - ../webapp-service:/app:delegated
+      - ./webapp-service:/app:delegated
       - /app/node_modules
 
   bot:
     build:
-      context: ../bot-service
+      context: ./bot-service
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -114,12 +114,12 @@ services:
       TELEGRAM_WEBHOOK_PATH: /webhook
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
     volumes:
-      - ../bot-service:/app:delegated
+      - ./bot-service:/app:delegated
       - /app/node_modules
 
   gateway:
     build:
-      context: ../gateway-service
+      context: ./gateway-service
       dockerfile: Dockerfile
     restart: unless-stopped
     depends_on:
@@ -148,13 +148,13 @@ services:
       BACKEND_WEBHOOK_PATH: /webhook
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
     volumes:
-      - ../gateway-service:/app:delegated
+      - ./gateway-service:/app:delegated
       - /app/node_modules
 
   frontend:
     profiles: ["frontend"]
     build:
-      context: ../frontend
+      context: ./frontend
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     depends_on:
@@ -167,7 +167,7 @@ services:
       BACKEND_URL: http://gateway:8080
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
     volumes:
-      - ../frontend:/app:delegated
+      - ./frontend:/app:delegated
       - /app/node_modules
 
 volumes:
