@@ -37,7 +37,7 @@ Also set Mini App URL in BotFather:
 ## Run (Docker + Postgres)
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dashboard (Next.js): `http://localhost:3000/`
@@ -83,7 +83,7 @@ docker compose -f docker-compose.yml -f docker-compose.traefik.yml up -d --build
 
 ## Production (Debian VM + External Traefik)
 
-If you already run Traefik separately (recommended), use `docker-compose.prod.yml` to:
+If you already run Traefik separately (recommended), the default `docker-compose.yml` is production-oriented:
 - remove host port exposure for `postgres`, `gateway`, `frontend`
 - attach `gateway` and `frontend` to an external `proxy` network
 - provide Traefik labels for `api.<domain>` and `mini.<domain>`
@@ -102,7 +102,7 @@ Required `.env`:
 Run:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+docker compose up -d --build
 ```
 
 ## Microservices (MVP) + Gateway

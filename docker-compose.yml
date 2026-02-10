@@ -6,8 +6,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-animebot}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -116,8 +114,24 @@ services:
         condition: service_started
       list:
         condition: service_started
-    ports:
-      - "8080:8080"
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
+      - traefik.http.services.gateway.loadbalancer.server.port=8080
+
+      # api.<domain> -> gateway (all paths)
+      - traefik.http.routers.api.rule=Host(`${API_HOST:-api.localhost}`)
+      - traefik.http.routers.api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
+
+      # mini.<domain> -> gateway only for /api/* and /webhook
+      - traefik.http.routers.mini_api.rule=Host(`${MINI_HOST:-mini.localhost}`) && (PathPrefix(`/api`) || Path(`/webhook`))
+      - traefik.http.routers.mini_api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.mini_api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
+      - traefik.http.routers.mini_api.priority=100
     environment:
       PORT: 8080
       UPSTREAM_WEBAPP_URL: http://webapp:8080
@@ -138,11 +152,26 @@ services:
     depends_on:
       gateway:
         condition: service_started
-    ports:
-      - "3000:3000"
+    networks:
+      - default
+      - proxy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
+      - traefik.http.services.frontend.loadbalancer.server.port=3000
+
+      # mini.<domain> UI (everything else)
+      - traefik.http.routers.mini_ui.rule=Host(`${MINI_HOST:-mini.localhost}`)
+      - traefik.http.routers.mini_ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.mini_ui.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
+      - traefik.http.routers.mini_ui.priority=1
     environment:
       BACKEND_URL: http://gateway:8080
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
 
 volumes:
   postgres_data:
+
+networks:
+  proxy:
+    external: true

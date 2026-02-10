@@ -22,10 +22,10 @@ This repo is now fully migrated to a microservices layout (HTTP-only, no broker)
 
 ## Local (microservices)
 
-Default local run (includes gateway + internal services; frontend is optional):
+Local run (with ports exposed to host):
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dev (hot reload):

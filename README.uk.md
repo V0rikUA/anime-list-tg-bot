@@ -37,7 +37,7 @@ cp .env.example .env
 ## Запуск (Docker + Postgres)
 
 ```bash
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Gateway: `http://localhost:8080`
