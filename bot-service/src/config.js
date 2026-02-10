@@ -13,6 +13,11 @@ const rootEnvPath = path.resolve(__dirname, '..', '..', '.env');
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
 }
+const rootEnvLocalPath = path.resolve(__dirname, '..', '..', '.env.local');
+if (fs.existsSync(rootEnvLocalPath)) {
+  // Local overrides (kept out of git), applied after `.env`.
+  dotenv.config({ path: rootEnvLocalPath });
+}
 
 /**
  * @param {string} name

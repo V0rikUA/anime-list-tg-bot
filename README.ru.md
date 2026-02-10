@@ -18,6 +18,7 @@ cd bot-service && npm install
 cd ../webapp-service && npm install
 cd ../frontend && npm install
 cp .env.example .env
+cp .env.local.example .env.local
 ```
 
 Заполни значения в `.env`:
@@ -37,7 +38,7 @@ cp .env.example .env
 ## Запуск (Docker + Postgres)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Gateway: `http://localhost:8080`
@@ -173,7 +174,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 
 ## Быстрый тест через Cloudflared
 
-1. Запусти сервисы: `docker compose up -d --build`
+1. Запусти сервисы: `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up -d --build`
 2. Запусти туннели (frontend + gateway):
 
 ```bash

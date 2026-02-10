@@ -18,6 +18,7 @@ cd bot-service && npm install
 cd ../webapp-service && npm install
 cd ../frontend && npm install
 cp .env.example .env
+cp .env.local.example .env.local
 ```
 
 Fill `.env` values:
@@ -37,7 +38,7 @@ Also set Mini App URL in BotFather:
 ## Run (Docker + Postgres)
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dashboard (Next.js): `http://localhost:3000/`
@@ -120,7 +121,7 @@ Gateway health: `http://localhost:8080/healthz`
 ## Dev (Docker + Postgres + Hot Reload)
 
 ```bash
-docker compose -f docker-compose.dev.yml --profile frontend up --build
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Dev compose starts services with `npm run dev` and mounts code into containers.
@@ -222,7 +223,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 
 ## Cloudflared quick test
 
-1. Start services: `docker compose up -d --build`
+1. Start services: `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up -d --build`
 2. Run tunnels (frontend + gateway):
 
 ```bash

@@ -25,13 +25,13 @@ This repo is now fully migrated to a microservices layout (HTTP-only, no broker)
 Local run (with ports exposed to host):
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dev (hot reload):
 
 ```bash
-docker compose -f docker-compose.dev.yml --profile frontend up --build
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Endpoints:
