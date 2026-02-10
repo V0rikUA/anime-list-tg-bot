@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: anime-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      containers:
+        - name: catalog
+          image: example/catalog-service:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: CATALOG_PORT
+            - name: CATALOG_CACHE_TTL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: CATALOG_CACHE_TTL_MS
+            - name: CATALOG_CACHE_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: CATALOG_CACHE_MAX
+            - name: SHIKIMORI_USER_AGENT
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: SHIKIMORI_USER_AGENT
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+

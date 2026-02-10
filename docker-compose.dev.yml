@@ -9,7 +9,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-animebot}"]
       interval: 10s
@@ -27,12 +27,16 @@ services:
       context: ./catalog-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       PORT: 8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       CATALOG_CACHE_TTL_MS: ${CATALOG_CACHE_TTL_MS:-600000}
       CATALOG_CACHE_MAX: ${CATALOG_CACHE_MAX:-500}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
+    volumes:
+      - ./catalog-service:/app:delegated
+      - /app/node_modules
 
   list:
     build:
@@ -42,10 +46,14 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       PORT: 8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
+    volumes:
+      - ./list-service:/app:delegated
+      - /app/node_modules
 
   webapp:
     build:
@@ -61,6 +69,7 @@ services:
         condition: service_started
       list:
         condition: service_started
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       PORT: 8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -74,6 +83,10 @@ services:
       LIST_SERVICE_URL: http://list:8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
+      DEBUG_WEBAPP_LOGS: "1"
+    volumes:
+      - ./webapp-service:/app:delegated
+      - /app/node_modules
 
   bot:
     build:
@@ -85,6 +98,7 @@ services:
         condition: service_healthy
       watch-api:
         condition: service_started
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       PORT: 8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
@@ -95,10 +109,13 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
       WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/}
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
-      TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
-      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
-      TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
+      TELEGRAM_WEBHOOK_URL: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      TELEGRAM_WEBHOOK_PATH: /webhook
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
+    volumes:
+      - ./bot-service:/app:delegated
+      - /app/node_modules
 
   gateway:
     build:
@@ -118,6 +135,7 @@ services:
         condition: service_started
     ports:
       - "8080:8080"
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       PORT: 8080
       UPSTREAM_WEBAPP_URL: http://webapp:8080
@@ -127,22 +145,30 @@ services:
       UPSTREAM_LIST_URL: http://list:8080
       UPSTREAM_TIMEOUT_MS: 10000
       GET_RETRY_MAX: 2
-      BACKEND_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
+      BACKEND_WEBHOOK_PATH: /webhook
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    volumes:
+      - ./gateway-service:/app:delegated
+      - /app/node_modules
 
   frontend:
+    profiles: ["frontend"]
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     restart: unless-stopped
     depends_on:
       gateway:
         condition: service_started
     ports:
       - "3000:3000"
+    command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
     environment:
       BACKEND_URL: http://gateway:8080
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
+    volumes:
+      - ./frontend:/app:delegated
+      - /app/node_modules
 
 volumes:
-  postgres_data:
+  postgres_data_dev:

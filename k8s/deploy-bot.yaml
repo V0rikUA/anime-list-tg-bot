@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bot
+  namespace: anime-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bot
+  template:
+    metadata:
+      labels:
+        app: bot
+    spec:
+      containers:
+        - name: bot
+          image: example/bot-service:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: DB_CLIENT
+              value: "pg"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: DATABASE_URL
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: TELEGRAM_BOT_TOKEN
+            - name: TELEGRAM_BOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: TELEGRAM_BOT_USERNAME
+            - name: WATCH_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_WATCH_URL
+            - name: WATCH_SOURCES_ALLOWLIST
+              value: ""
+            - name: WEB_APP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: WEB_APP_URL
+            - name: MINIAPP_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: MINIAPP_ACCESS_TOKEN
+            - name: TELEGRAM_WEBHOOK_URL
+              value: "https://example.com/webhook"
+            - name: TELEGRAM_WEBHOOK_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: TELEGRAM_WEBHOOK_PATH
+            - name: TELEGRAM_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: TELEGRAM_WEBHOOK_SECRET
+            - name: SHIKIMORI_USER_AGENT
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: SHIKIMORI_USER_AGENT
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: 250m
+              memory: 512Mi
+

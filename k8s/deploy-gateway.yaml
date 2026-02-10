@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: anime-bot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: example/gateway-service:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: GATEWAY_PORT
+            - name: UPSTREAM_WEBAPP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_WEBAPP_URL
+            - name: UPSTREAM_BOT_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_BOT_URL
+            - name: UPSTREAM_CATALOG_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_CATALOG_URL
+            - name: UPSTREAM_LIST_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_LIST_URL
+            - name: UPSTREAM_WATCH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_WATCH_URL
+            - name: UPSTREAM_TIMEOUT_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: UPSTREAM_TIMEOUT_MS
+            - name: GET_RETRY_MAX
+              valueFrom:
+                configMapKeyRef:
+                  name: anime-bot-config
+                  key: GET_RETRY_MAX
+            - name: BACKEND_WEBHOOK_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: TELEGRAM_WEBHOOK_PATH
+            - name: INTERNAL_SERVICE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: anime-bot-secrets
+                  key: INTERNAL_SERVICE_TOKEN
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
