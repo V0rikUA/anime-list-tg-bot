@@ -58,6 +58,19 @@ Env highlights:
 - `TELEGRAM_WEBHOOK_URL=https://api.indexforge.site/webhook`
 - `TELEGRAM_WEBHOOK_SECRET=<random string>` (recommended)
 
+## Production (Debian VM + Docker + Traefik)
+
+If you prefer Traefik for subdomains + automatic TLS, use `docker-compose.traefik.yml`:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile frontend up -d --build
+```
+
+Required `.env`:
+- `MINI_HOST=mini.indexforge.site`
+- `API_HOST=api.indexforge.site`
+- `TRAEFIK_ACME_EMAIL=you@example.com`
+
 ## Mini App API base
 In docker compose, `frontend` is configured with `BACKEND_URL=http://gateway:8080`.
 No code changes in Next.js routes are required; the gateway preserves existing `/api/*` paths.

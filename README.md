@@ -66,6 +66,21 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml --profile front
 
 TLS certificates are obtained automatically by Caddy and stored in Docker volumes.
 
+## Production (Debian VM + Docker + Traefik, subdomains)
+
+If you prefer Traefik, use the included `docker-compose.traefik.yml`.
+
+Required `.env`:
+- `MINI_HOST=mini.indexforge.site`
+- `API_HOST=api.indexforge.site`
+- `TRAEFIK_ACME_EMAIL=you@example.com`
+
+Run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.traefik.yml --profile frontend up -d --build
+```
+
 ## Microservices (MVP) + Gateway
 
 This repo uses an HTTP-only microservices layout (no broker) with:
