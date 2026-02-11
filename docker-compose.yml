@@ -38,7 +38,7 @@ services:
     ports:
       - 3000:3000
     environment:
-      PORT: 3000
+    #  PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       CATALOG_CACHE_TTL_MS: ${CATALOG_CACHE_TTL_MS:-600000}
       CATALOG_CACHE_MAX: ${CATALOG_CACHE_MAX:-500}
@@ -60,7 +60,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PORT: 3000
+    #  PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
     labels:
@@ -86,7 +86,7 @@ services:
       list:
         condition: service_started
     environment:
-      PORT: 3000
+    #  PORT: 3000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WEBAPP_AUTH_MAX_AGE_SEC: ${WEBAPP_AUTH_MAX_AGE_SEC:-86400}
@@ -114,7 +114,7 @@ services:
       watch-api:
         condition: service_started
     environment:
-      PORT: 3000
+    #  PORT: 3000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WATCH_API_URL: http://watch-api:8000
@@ -175,7 +175,7 @@ services:
       # - traefik.http.routers.mini_api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
       # - traefik.http.routers.mini_api.priority=100
     environment:
-      PORT: 3000
+    #  PORT: 3000
       UPSTREAM_WEBAPP_URL: http://webapp:3000
       UPSTREAM_BOT_URL: http://bot:3000
       UPSTREAM_WATCH_URL: http://watch-api:8000
