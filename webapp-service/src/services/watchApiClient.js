@@ -82,3 +82,29 @@ export async function watchVideos({ sourceRef }) {
   url.searchParams.set('sourceRef', String(sourceRef || '').trim());
   return fetchJson(url.toString(), { timeoutMs: 15000 });
 }
+
+export async function watchProviders() {
+  const base = requireWatchApiUrl();
+  const url = new URL(`${base}/v1/sources`);
+  const out = await fetchJson(url.toString(), { timeoutMs: 10000 });
+
+  const raw = Array.isArray(out?.sources) ? out.sources : [];
+  const normalized = raw
+    .map((it) => ({
+      name: String(it?.name || '').trim().toLowerCase(),
+      note: String(it?.note || '').trim()
+    }))
+    .filter((it) => Boolean(it.name));
+
+  if (!watchAllowlist) {
+    return { ok: true, sources: normalized };
+  }
+
+  const byName = new Map(normalized.map((it) => [it.name, it]));
+  const filtered = [];
+  for (const name of watchAllowlist) {
+    const hit = byName.get(name);
+    filtered.push(hit || { name, note: '' });
+  }
+  return { ok: true, sources: filtered };
+}

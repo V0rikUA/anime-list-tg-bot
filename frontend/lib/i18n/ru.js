@@ -63,6 +63,8 @@ export const ru = {
     errLoad: 'Не удалось загрузить',
     watchTitle: 'Смотреть',
     watchHint: 'Эпизоды и источники. Некоторые провайдеры могут быть недоступны по региону.',
+    watchProvider: 'Сайт-источник',
+    watchProviderAuto: 'Автовыбор источника',
     watchFind: 'Найти эпизоды',
     watchRebind: 'Неправильное связывание?',
     watchPickTitle: 'Выбери тайтл',

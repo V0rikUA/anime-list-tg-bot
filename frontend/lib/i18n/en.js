@@ -63,6 +63,8 @@ export const en = {
     errLoad: 'Failed to load',
     watchTitle: 'Watch',
     watchHint: 'Get episodes and sources. Some providers may be region-locked.',
+    watchProvider: 'Source site',
+    watchProviderAuto: 'Auto source',
     watchFind: 'Find episodes',
     watchRebind: 'Wrong match?',
     watchPickTitle: 'Pick a title',

@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { AnimeRepository } from './db.js';
 import { fetchAnimeDetails } from './services/animeSources.js';
-import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
+import { watchEpisodes, watchProviders, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 function pickTitleByLang(item, langRaw) {
   const lang = String(langRaw || '').trim().toLowerCase();
@@ -434,6 +434,21 @@ async function main() {
       return reply.send({ ok: true });
     } catch (err) {
       return reply.code(400).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post('/api/webapp/watch/providers', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    try {
+      const out = await watchProviders();
+      return reply.send({
+        ok: true,
+        sources: Array.isArray(out?.sources) ? out.sources : []
+      });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 

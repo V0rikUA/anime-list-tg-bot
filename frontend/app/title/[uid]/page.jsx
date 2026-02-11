@@ -24,6 +24,8 @@ export default function TitlePage() {
     loading: false,
     error: '',
     step: 'idle', // idle | titles | episodes | sources | videos
+    availableSources: [],
+    selectedSource: '',
     animeRef: '',
     episodeNum: '',
     sourceRef: '',
@@ -209,6 +211,47 @@ export default function TitlePage() {
     return t('title.watchAuto');
   }
 
+  const selectedWatchProvider = useMemo(
+    () => watchState.availableSources.find((s) => s.name === watchState.selectedSource) || null,
+    [watchState.availableSources, watchState.selectedSource]
+  );
+
+  async function watchLoadProviders() {
+    const initData = getInitData();
+    if (!initData) return;
+
+    const response = await fetch('/api/webapp/watch/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const sources = Array.isArray(json.sources)
+      ? json.sources
+        .map((it) => ({
+          name: String(it?.name || '').trim().toLowerCase(),
+          note: String(it?.note || '').trim()
+        }))
+        .filter((it) => Boolean(it.name))
+      : [];
+
+    setWatchState((s) => ({
+      ...s,
+      availableSources: sources,
+      selectedSource: sources.some((it) => it.name === s.selectedSource) ? s.selectedSource : ''
+    }));
+  }
+
+  useEffect(() => {
+    if (!uid) return;
+    watchLoadProviders().catch(() => null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
+
   async function watchFindTitles(page = 1) {
     const initData = getInitData();
     if (!initData) {
@@ -219,10 +262,17 @@ export default function TitlePage() {
     if (!uid) return;
 
     setWatchState((s) => ({ ...s, loading: true, error: '', step: 'idle' }));
+    const selectedSource = String(watchState.selectedSource || '').trim();
     const response = await fetch('/api/webapp/watch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, uid, limit: 5, page })
+      body: JSON.stringify({
+        initData,
+        uid,
+        limit: 5,
+        page,
+        ...(selectedSource ? { source: selectedSource } : null)
+      })
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
@@ -474,6 +524,37 @@ export default function TitlePage() {
             <p className="section-title">{t('title.watchTitle')}</p>
             <p className="meta">{t('title.watchHint')}</p>
             <div className="invite-actions">
+              <div className="watch-source-row">
+                <p className="meta">{t('title.watchProvider')}</p>
+                <select
+                  className="select select--full"
+                  value={watchState.selectedSource}
+                  onChange={(e) => {
+                    const next = String(e.target.value || '').trim().toLowerCase();
+                    setWatchState((s) => ({
+                      ...s,
+                      selectedSource: next,
+                      error: '',
+                      step: 'idle',
+                      animeRef: '',
+                      episodeNum: '',
+                      sourceRef: '',
+                      map: null,
+                      titles: [],
+                      episodes: [],
+                      sources: [],
+                      videos: []
+                    }));
+                  }}
+                >
+                  <option value="">{t('title.watchProviderAuto')}</option>
+                  {watchState.availableSources.map((src) => (
+                    <option key={src.name} value={src.name}>{src.name}</option>
+                  ))}
+                </select>
+                {selectedWatchProvider?.note ? <p className="meta">{selectedWatchProvider.note}</p> : null}
+              </div>
+
               <button
                 className="btn"
                 type="button"

@@ -63,6 +63,8 @@ export const uk = {
     errLoad: 'Не вдалося завантажити',
     watchTitle: 'Дивитися',
     watchHint: 'Епізоди та джерела. Деякі провайдери можуть бути недоступні за регіоном.',
+    watchProvider: 'Сайт-джерело',
+    watchProviderAuto: 'Автовибір джерела',
     watchFind: 'Знайти епізоди',
     watchRebind: 'Неправильне зіставлення?',
     watchPickTitle: 'Обери тайтл',

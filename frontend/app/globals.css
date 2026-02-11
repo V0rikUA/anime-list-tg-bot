@@ -115,6 +115,10 @@ h1 {
   font-size: 13px;
 }
 
+.select--full {
+  width: 100%;
+}
+
 .select:active {
   transform: translateY(1px);
 }
@@ -277,6 +281,11 @@ h1 {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 8px;
+}
+
+.watch-source-row {
+  display: grid;
+  gap: 6px;
 }
 
 .btn-chip {
