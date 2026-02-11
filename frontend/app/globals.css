@@ -220,6 +220,12 @@ h1 {
   align-items: center;
 }
 
+.item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
 .thumb {
   width: 52px;
   height: 70px;
@@ -285,6 +291,18 @@ h1 {
 
 .btn-chip:active {
   transform: scale(0.99);
+}
+
+.btn-chip--danger {
+  color: #c43a2a;
+  border-color: rgba(196, 58, 42, 0.35);
+  background: rgba(196, 58, 42, 0.08);
+}
+
+html[data-theme="dark"] .btn-chip--danger {
+  color: #ff8e78;
+  border-color: rgba(255, 142, 120, 0.4);
+  background: rgba(255, 90, 54, 0.16);
 }
 
 .search-pager {

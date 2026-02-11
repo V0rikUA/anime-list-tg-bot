@@ -285,6 +285,22 @@ async function main() {
     }
   });
 
+  app.post('/api/webapp/list/remove', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    const listType = String(request.body?.listType || '').trim().toLowerCase();
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+    if (!listType) return reply.code(400).send({ ok: false, error: 'listType is required' });
+    if (!['planned', 'favorite', 'watched'].includes(listType)) {
+      return reply.code(400).send({ ok: false, error: 'invalid listType' });
+    }
+
+    const removed = await repository.removeFromTrackedList(validation.telegramUserId, listType, uid);
+    return reply.send({ ok: true, removed });
+  });
+
   app.post('/api/webapp/recommend/add', async (request, reply) => {
     const validation = validateInitDataOrReply(request, reply);
     if (!validation) return;

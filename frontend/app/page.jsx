@@ -76,11 +76,12 @@ export default function MiniAppDashboard() {
     }
   }
 
-  function extractQueryAfterSpace(raw) {
-    const s = String(raw || '');
-    const idx = s.indexOf(' ');
-    if (idx < 0) return '';
-    return s.slice(idx + 1).trim();
+  function extractQuery(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    const cmdLike = s.match(/^\/\S+\s+(.+)$/);
+    if (cmdLike) return String(cmdLike[1] || '').trim();
+    return s;
   }
 
   function mapTelegramAuthError(code) {
@@ -298,6 +299,22 @@ export default function MiniAppDashboard() {
     }
   }
 
+  async function removeFromList(uid, listType) {
+    const initData = getInitData();
+    if (!initData) throw new Error(t('dashboard.errNoInitData'));
+    const response = await fetch('/api/webapp/list/remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, uid, listType })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      const hint = mapTelegramAuthError(json?.error);
+      throw new Error(hint || json?.error || json?.detail || t('dashboard.errTelegramValidation'));
+    }
+    return Boolean(json?.removed);
+  }
+
   async function addRecommendation(uid) {
     const initData = getInitData();
     if (!initData) throw new Error(t('dashboard.errNoInitData'));
@@ -315,7 +332,7 @@ export default function MiniAppDashboard() {
 
   // Live search: call API only when user typed a space and some query after it.
   useEffect(() => {
-    const q = extractQueryAfterSpace(searchRaw);
+    const q = extractQuery(searchRaw);
     setSearchQuery(q);
     setSearchToast('');
 
@@ -360,14 +377,14 @@ export default function MiniAppDashboard() {
     await triggerSearch(q, nextPage);
   }
 
-  function renderAnimeList(list, withWatchStats) {
+  function renderAnimeList(list, withWatchStats, listType) {
     if (!Array.isArray(list) || list.length === 0) {
       return <p className="empty">{t('dashboard.empty')}</p>;
     }
 
     return list.map((item) => (
-      <Link className="item-link" href={withMt(`/title/${encodeURIComponent(item.uid)}`)} key={item.uid}>
-        <article className="item">
+      <article className="item" key={item.uid}>
+        <Link className="item-link" href={withMt(`/title/${encodeURIComponent(item.uid)}`)}>
           <div className="item-row">
             {item.imageSmall ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -385,8 +402,25 @@ export default function MiniAppDashboard() {
               ) : null}
             </div>
           </div>
-        </article>
-      </Link>
+        </Link>
+        {listType ? (
+          <div className="item-actions">
+            <button
+              className="btn-chip btn-chip--danger"
+              type="button"
+              onClick={() => {
+                removeFromList(item.uid, listType)
+                  .then(() => {
+                    load().catch(() => null);
+                  })
+                  .catch((e) => setMetaText(e?.message || t('dashboard.removeFailed')));
+              }}
+            >
+              {t('dashboard.remove')}
+            </button>
+          </div>
+        ) : null}
+      </article>
     ));
   }
 
@@ -523,7 +557,6 @@ export default function MiniAppDashboard() {
                 />
               </div>
 
-              {searchRaw.trim() && !searchQuery ? <p className="meta">{t('dashboard.searchWaitSpace')}</p> : null}
               {searchState.loading ? <p className="meta">{t('dashboard.searchLoading')}</p> : null}
               {searchState.error ? <p className="meta">{searchState.error}</p> : null}
               {searchToast ? <p className="meta">{searchToast}</p> : null}
@@ -612,9 +645,9 @@ export default function MiniAppDashboard() {
               ) : null}
             </div>
           </div>
-          <div id="tab-watched" className="tab-panel active">{renderAnimeList(data?.watched, true)}</div>
-          <div id="tab-planned" className="tab-panel">{renderAnimeList(data?.planned, false)}</div>
-          <div id="tab-favorites" className="tab-panel">{renderAnimeList(data?.favorites, false)}</div>
+          <div id="tab-watched" className="tab-panel active">{renderAnimeList(data?.watched, true, 'watched')}</div>
+          <div id="tab-planned" className="tab-panel">{renderAnimeList(data?.planned, false, 'planned')}</div>
+          <div id="tab-favorites" className="tab-panel">{renderAnimeList(data?.favorites, false, 'favorite')}</div>
           <div id="tab-recommended" className="tab-panel">{renderRecommended(data?.recommendedFromFriends)}</div>
           <div id="tab-friends" className="tab-panel">{renderFriends(data?.friends)}</div>
         </div>

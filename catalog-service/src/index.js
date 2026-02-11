@@ -46,8 +46,9 @@ async function main() {
 
     const items = await searchAnimeMultiSource({ query: q, limit, sources: srcs });
     const merged = mergeCatalogResults(items);
-    const withUk = await localizeUk(merged);
-    const ranked = rankCatalogResults(q, withUk);
+    // UK localization is expensive; run it only when client explicitly asks for UK.
+    const localized = lang === 'uk' ? await localizeUk(merged) : merged;
+    const ranked = rankCatalogResults(q, localized);
 
     const out = {
       ok: true,
