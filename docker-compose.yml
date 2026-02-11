@@ -2,6 +2,8 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    ports:
+      - 5432:5432
     networks:
       - bot
     environment:
@@ -20,6 +22,8 @@ services:
     build:
       context: ./watch-api
       dockerfile: Dockerfile
+    ports:
+      - 8000:8000
     restart: unless-stopped
     networks:
       - bot
@@ -32,7 +36,7 @@ services:
     networks:
       - bot
     environment:
-      PORT: 8080
+      PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       CATALOG_CACHE_TTL_MS: ${CATALOG_CACHE_TTL_MS:-600000}
       CATALOG_CACHE_MAX: ${CATALOG_CACHE_MAX:-500}
@@ -49,7 +53,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PORT: 8080
+      PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
 
@@ -70,7 +74,7 @@ services:
       list:
         condition: service_started
     environment:
-      PORT: 8080
+      PORT: 3000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WEBAPP_AUTH_MAX_AGE_SEC: ${WEBAPP_AUTH_MAX_AGE_SEC:-86400}
@@ -96,14 +100,14 @@ services:
       watch-api:
         condition: service_started
     environment:
-      PORT: 8080
+      PORT: 3000
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WATCH_API_URL: http://watch-api:8000
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
-      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/}
+      WEB_APP_URL: ${WEB_APP_URL:-http://web-app:3000/}
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
@@ -127,16 +131,18 @@ services:
         condition: service_started
       list:
         condition: service_started
+    ports:
+      - 3000:3000
     networks:
       - bot
       - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.gateway-service.rule=Host('api.indexforge.site')"
-      - "traefik.http.routers.gateway-service.entrypoints=websecure"
-      - "traefik.http.routers.gateway-service.tls=true"
-      - "traefik.http.routers.gateway-service.tls.certresolver=caresolver"
-      - "traefik.http.services.gateway-service.loadbalancer.server.port=8080"
+      - "traefik.http.routers.gateway.rule=Host('api.indexforge.site')"
+      - "traefik.http.routers.gateway.entrypoints=websecure"
+      - "traefik.http.routers.gateway.tls=true"
+      - "traefik.http.routers.gateway.tls.certresolver=caresolver"
+      - "traefik.http.services.gateway.loadbalancer.server.port=3000"
       # - traefik.enable=true
       # - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
       # - traefik.http.services.gateway.loadbalancer.server.port=8080
@@ -153,11 +159,11 @@ services:
       # - traefik.http.routers.mini_api.priority=100
     environment:
       PORT: 8080
-      UPSTREAM_WEBAPP_URL: http://webapp:8080
-      UPSTREAM_BOT_URL: http://bot:8080
+      UPSTREAM_WEBAPP_URL: http://webapp:3000
+      UPSTREAM_BOT_URL: http://bot:3000
       UPSTREAM_WATCH_URL: http://watch-api:8000
-      UPSTREAM_CATALOG_URL: http://catalog:8080
-      UPSTREAM_LIST_URL: http://list:8080
+      UPSTREAM_CATALOG_URL: http://catalog:3000
+      UPSTREAM_LIST_URL: http://list:3000
       UPSTREAM_TIMEOUT_MS: 10000
       GET_RETRY_MAX: 2
       BACKEND_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
@@ -175,14 +181,14 @@ services:
       - bot
       - traefik
     ports:
-      - 80:80
+      - 3000:3000
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host('mini.indexforge.site')"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=caresolver"
-      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
       # - traefik.enable=true
       # - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
       # - traefik.http.services.frontend.loadbalancer.server.port=3000
