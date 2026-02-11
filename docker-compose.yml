@@ -35,6 +35,8 @@ services:
     restart: unless-stopped
     networks:
       - bot
+    ports:
+      - 3000:3000
     environment:
       PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -52,6 +54,8 @@ services:
     restart: unless-stopped
     networks:
       - bot
+    ports:
+      - 3000:3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,6 +74,8 @@ services:
     restart: unless-stopped
     networks:
       - bot
+    ports:
+      - 3000:3000
     depends_on:
       postgres:
         condition: service_healthy
@@ -88,8 +94,8 @@ services:
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
-      CATALOG_SERVICE_URL: http://catalog:8080
-      LIST_SERVICE_URL: http://list:8080
+      CATALOG_SERVICE_URL: http://catalog:3000
+      LIST_SERVICE_URL: http://list:3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
     labels:
@@ -169,7 +175,7 @@ services:
       # - traefik.http.routers.mini_api.tls.certresolver=${TRAEFIK_CERT_RESOLVER:-le}
       # - traefik.http.routers.mini_api.priority=100
     environment:
-      PORT: 8080
+      PORT: 3000
       UPSTREAM_WEBAPP_URL: http://webapp:3000
       UPSTREAM_BOT_URL: http://bot:3000
       UPSTREAM_WATCH_URL: http://watch-api:8000
