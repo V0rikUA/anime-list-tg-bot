@@ -26,6 +26,7 @@ cp .env.local.example .env.local
 - `TELEGRAM_BOT_USERNAME` (для інвайт-посилань)
 - `WATCH_API_URL` (URL сервісу `watch-api`, наприклад `http://watch-api:8000`)
 - `WATCH_SOURCES_ALLOWLIST` (опційно, список джерел `anicli_api` через кому)
+- `BOT_SEARCH_MODE` (`catalog` рекомендовано, `local` як fallback)
 - `DB_CLIENT` (`pg` для docker compose, `sqlite3` для локальної sqlite)
 - `DATABASE_URL` (обов'язково для `pg`)
 - `WEB_APP_URL` (публічний URL mini app, зазвичай `https://your-domain/`)
@@ -76,6 +77,19 @@ TLS сертифікати Caddy отримає автоматично та зб
 
 Health gateway: `http://localhost:8080/healthz`
 
+### Канонічне об'єднання каталогу та локалізація
+
+- `catalog-service` об'єднує дублікати джерел (`jikan:<id>` + `shikimori:<id>`) в один канонічний запис: `uid=mal:<id>`.
+- У відповіді пошуку тепер є:
+  - `legacyUids` (вихідні source UID, пов'язані з канонічним UID)
+  - `sourceRefs` (референси за джерелами)
+  - опційно `synopsisRu`, `synopsisUk`
+- Політика локалізації:
+  - `titleRu` / `synopsisRu`: пріоритет Shikimori
+  - `titleEn` / `synopsisEn`: пріоритет Jikan
+  - `titleUk` / `synopsisUk`: переклад RU->UK, fallback EN->UK
+- Зворотна сумісність: старі source UID резолвляться через таблицю `anime_uid_aliases`.
+
 ## Запуск (без Docker)
 
 Використай sqlite (запусти сервіси окремо):
@@ -103,7 +117,7 @@ docker compose exec webapp npm run migrate
 ## Команди Telegram
 
 - `/search <title>`
-- `/watch <uid>`
+- `/watch <uid>` (`mal:<id>` канонічний; старі source UID також приймаються)
 - `/watched`
 - `/unwatch <uid>`
 - `/plan <uid>`

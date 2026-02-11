@@ -4,8 +4,9 @@ import { config } from './config.js';
 import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
-import { fetchAnimeDetails, searchAnime } from './services/animeSources.js';
-import { translateShort } from './services/translate.js';
+import { fetchAnimeDetails, searchAnime as searchAnimeLocal } from './services/animeSources.js';
+import { catalogSearch } from './services/catalogClient.js';
+import { translateShort, translateText } from './services/translate.js';
 import {
   formatFriends,
   formatRecommendationsFromFriends,
@@ -614,7 +615,23 @@ if (!bot) {
     await renderScreen(ctx, session, t(lang, 'searching', { query }), Markup.inlineKeyboard([navRow(lang)]));
 
     try {
-      const results = await searchAnime(query, 5);
+      let results = [];
+      if (config.botSearchMode === 'catalog') {
+        try {
+          results = await catalogSearch({
+            q: query,
+            limit: 5,
+            lang,
+            sources: ['jikan', 'shikimori']
+          });
+        } catch (error) {
+          logger.warn({ err: error?.message || String(error) }, 'catalog search failed, falling back to local search');
+        }
+      }
+      if (!Array.isArray(results) || results.length === 0) {
+        results = await searchAnimeLocal(query, 5);
+      }
+
       // Persist i18n titles and show localized titles in bot UI immediately.
       const localized = await Promise.all(results.map(async (r) => {
         // Prefer localized titles from sources (e.g. Shikimori `russian`) and
@@ -641,7 +658,11 @@ if (!bot) {
           titleRu = await translateShort(titleEn, 'ru').catch(() => '');
         }
         if (lang === 'uk' && !titleUk) {
-          titleUk = await translateShort(titleEn, 'uk').catch(() => '');
+          if (titleRu) {
+            titleUk = await translateText(titleRu, { from: 'ru', to: 'uk' }).catch(() => '');
+          } else {
+            titleUk = await translateText(titleEn, { from: 'en', to: 'uk' }).catch(() => '');
+          }
         }
 
         const title =

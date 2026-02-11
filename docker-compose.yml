@@ -97,12 +97,17 @@ services:
         condition: service_healthy
       watch-api:
         condition: service_started
+      catalog:
+        condition: service_started
     environment:
       PORT: 8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WATCH_API_URL: http://watch-api:8000
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
+      CATALOG_SERVICE_URL: http://catalog:8080
+      BOT_SEARCH_MODE: ${BOT_SEARCH_MODE:-catalog}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
       WEB_APP_URL: ${WEB_APP_URL:-http://web-app:3000/}

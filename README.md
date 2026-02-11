@@ -26,6 +26,7 @@ Fill `.env` values:
 - `TELEGRAM_BOT_USERNAME` (for invite links)
 - `WATCH_API_URL` (internal `watch-api` service URL, e.g. `http://watch-api:8000`)
 - `WATCH_SOURCES_ALLOWLIST` (optional, comma-separated `anicli_api` sources)
+- `BOT_SEARCH_MODE` (`catalog` recommended, `local` for fallback)
 - `DB_CLIENT` (`pg` for docker compose, `sqlite3` for local sqlite)
 - `DATABASE_URL` (required for `pg`)
 - `WEB_APP_URL` (public URL for mini app, usually `https://your-domain/`)
@@ -118,6 +119,19 @@ This repo uses an HTTP-only microservices layout (no broker) with:
 
 Gateway health: `http://localhost:8080/healthz`
 
+### Canonical catalog merge and localization
+
+- `catalog-service` merges duplicate source hits (`jikan:<id>` + `shikimori:<id>`) into one canonical record: `uid=mal:<id>`.
+- Search response now includes:
+  - `legacyUids` (source UIDs linked to canonical UID)
+  - `sourceRefs` (per-source refs)
+  - optional `synopsisRu`, `synopsisUk`
+- Localization policy:
+  - `titleRu` / `synopsisRu`: prefer Shikimori
+  - `titleEn` / `synopsisEn`: prefer Jikan
+  - `titleUk` / `synopsisUk`: RU->UK, fallback EN->UK
+- Backward compatibility: old source UIDs are resolved through `anime_uid_aliases`.
+
 ## Dev (Docker + Postgres + Hot Reload)
 
 ```bash
@@ -153,7 +167,7 @@ docker compose exec webapp npm run migrate
 ## Telegram commands
 
 - `/search <title>`
-- `/watch <uid>`
+- `/watch <uid>` (`mal:<id>` canonical; old source UIDs are still accepted)
 - `/watched`
 - `/unwatch <uid>`
 - `/plan <uid>`

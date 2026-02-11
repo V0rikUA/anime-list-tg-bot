@@ -67,6 +67,8 @@ services:
         condition: service_started
       catalog:
         condition: service_started
+      catalog:
+        condition: service_started
       list:
         condition: service_started
     command: ["sh", "-lc", "[ -d node_modules ] || npm install; npm run dev"]
@@ -77,6 +79,9 @@ services:
       WEBAPP_AUTH_MAX_AGE_SEC: ${WEBAPP_AUTH_MAX_AGE_SEC:-86400}
       WATCH_API_URL: http://watch-api:8000
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
+      CATALOG_SERVICE_URL: http://catalog:8080
+      BOT_SEARCH_MODE: ${BOT_SEARCH_MODE:-catalog}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
       CATALOG_SERVICE_URL: http://catalog:8080

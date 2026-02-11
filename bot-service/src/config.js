@@ -51,6 +51,9 @@ export const config = {
 
   watchApiUrl: process.env.WATCH_API_URL || '',
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
+  catalogServiceUrl: (process.env.CATALOG_SERVICE_URL || 'http://catalog:8080').replace(/\/+$/, ''),
+  internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
+  botSearchMode: String(process.env.BOT_SEARCH_MODE || 'catalog').trim().toLowerCase() === 'local' ? 'local' : 'catalog',
 
   dbClient: process.env.DB_CLIENT || 'sqlite3',
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
