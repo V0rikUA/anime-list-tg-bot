@@ -239,6 +239,8 @@ async function main() {
       return {
         uid: it.uid,
         source: it.source,
+        legacyUids: Array.isArray(it.legacyUids) ? it.legacyUids : [],
+        sourceRefs: it.sourceRefs || null,
         url: it.url || null,
         score: it.score ?? null,
         episodes: it.episodes ?? null,
@@ -248,6 +250,9 @@ async function main() {
         titleEn: row.titleEn || it.titleEn || it.title || null,
         titleRu: row.titleRu || it.titleRu || null,
         titleUk: row.titleUk || it.titleUk || null,
+        synopsisEn: row.synopsisEn || it.synopsisEn || null,
+        synopsisRu: row.synopsisRu || it.synopsisRu || null,
+        synopsisUk: row.synopsisUk || it.synopsisUk || null,
         title: pickTitleByLang(row, user.lang || 'en')
       };
     });
@@ -509,4 +514,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

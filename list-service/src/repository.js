@@ -17,6 +17,32 @@ function pickTitleByLang(row, langRaw) {
 export class ListRepository {
   constructor(db) {
     this.db = db;
+    this._hasAliasTable = null;
+  }
+
+  async hasAliasTable() {
+    if (this._hasAliasTable !== null) return this._hasAliasTable;
+    try {
+      this._hasAliasTable = await this.db.schema.hasTable('anime_uid_aliases');
+    } catch {
+      this._hasAliasTable = false;
+    }
+    return this._hasAliasTable;
+  }
+
+  async resolveCanonicalUid(uidRaw) {
+    const uid = String(uidRaw || '').trim();
+    if (!uid) return '';
+    if (!(await this.hasAliasTable())) return uid;
+    try {
+      const row = await this.db('anime_uid_aliases')
+        .where({ alias_uid: uid })
+        .select('canonical_uid')
+        .first();
+      return row?.canonical_uid ? String(row.canonical_uid) : uid;
+    } catch {
+      return uid;
+    }
   }
 
   async _ensureUserByTelegramId(db, telegramIdRaw) {
@@ -113,7 +139,7 @@ export class ListRepository {
 
   async addListItem(telegramIdRaw, { uid, listType } = {}) {
     const telegramId = String(telegramIdRaw || '').trim();
-    const animeUid = String(uid || '').trim();
+    const animeUid = await this.resolveCanonicalUid(uid);
     const lt = String(listType || '').trim().toLowerCase();
 
     if (!telegramId) throw new Error('userId is required');
