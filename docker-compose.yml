@@ -135,7 +135,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
       - "traefik.http.services.gateway.loadbalancer.server.port=8080"
-      - "traefik.http.routers.gateway.rule=Host('api.indexforge.site')"
+      - "traefik.http.routers.gateway.rule=Host(`api.indexforge.site`)"
       - "traefik.http.routers.gateway.entrypoints=websecure"
       - "traefik.http.routers.gateway.tls=true"
       - "traefik.http.routers.gateway.tls.certresolver=caresolver"
@@ -165,7 +165,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik"
-      - "traefik.http.routers.frontend.rule=Host('mini.indexforge.site')"
+      - "traefik.http.routers.frontend.rule=Host(`mini.indexforge.site`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls=true"
       - "traefik.http.routers.frontend.tls.certresolver=caresolver"
