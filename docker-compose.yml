@@ -41,6 +41,9 @@ services:
       CATALOG_CACHE_TTL_MS: ${CATALOG_CACHE_TTL_MS:-600000}
       CATALOG_CACHE_MAX: ${CATALOG_CACHE_MAX:-500}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.catalog.loadbalancer.server.port=3000"
 
   list:
     build:
@@ -56,6 +59,9 @@ services:
       PORT: 3000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.list.loadbalancer.server.port=3000"
 
   webapp:
     build:
@@ -86,7 +92,9 @@ services:
       LIST_SERVICE_URL: http://list:8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
-
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.webapp.loadbalancer.server.port=3000"
   bot:
     build:
       context: ./bot-service
@@ -113,7 +121,9 @@ services:
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
       TELEGRAM_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
-
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.bot.loadbalancer.server.port=3000"
   gateway:
     build:
       context: ./gateway-service
@@ -138,11 +148,12 @@ services:
       - traefik
     labels:
       - "traefik.enable=true"
+      - "traefik.http.services.gateway.loadbalancer.server.port=3000"
       - "traefik.http.routers.gateway.rule=Host('api.indexforge.site')"
       - "traefik.http.routers.gateway.entrypoints=websecure"
       - "traefik.http.routers.gateway.tls=true"
       - "traefik.http.routers.gateway.tls.certresolver=caresolver"
-      - "traefik.http.services.gateway.loadbalancer.server.port=3000"
+
       # - traefik.enable=true
       # - traefik.docker.network=${TRAEFIK_DOCKER_NETWORK:-proxy}
       # - traefik.http.services.gateway.loadbalancer.server.port=8080
