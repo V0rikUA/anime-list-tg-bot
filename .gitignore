@@ -30,3 +30,6 @@ frontend/.env.*.local
 
 # Backend dependencies (if installed inside backend/)
 backend/node_modules/
+
+# Local helper scripts with machine-specific deployment settings
+push-env.sh
