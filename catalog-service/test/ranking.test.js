@@ -31,3 +31,15 @@ test('deterministic tie-break: score then source priority then uid', () => {
   assert.equal(ranked[1].uid, 'jikan:1'); // uid asc within same source
   assert.equal(ranked[2].uid, 'jikan:2');
 });
+
+test('deterministic ranking order for canonical merged records', () => {
+  const items = [
+    { uid: 'mal:185', source: 'shikimori', title: 'Initial D', titleEn: 'Initial D' },
+    { uid: 'mal:186', source: 'shikimori', title: 'Initial D Second Stage', titleEn: 'Initial D Second Stage' },
+    { uid: 'mal:187', source: 'shikimori', title: 'New Initial D', titleEn: 'New Initial D' }
+  ];
+
+  const a = rankCatalogResults('Initial D', items).map((x) => x.uid);
+  const b = rankCatalogResults('Initial D', [...items].reverse()).map((x) => x.uid);
+  assert.deepEqual(a, b);
+});

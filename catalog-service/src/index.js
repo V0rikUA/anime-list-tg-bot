@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import { LruTtlCache } from './cache.js';
 import { searchAnimeMultiSource } from './animeSources/animeSources.js';
+import { localizeUk, mergeCatalogResults } from './merge.js';
 import { rankCatalogResults } from './ranking.js';
 import { requireInternalToken } from './auth/internalToken.js';
 
@@ -39,12 +40,14 @@ async function main() {
     const sources = parseCsv(request.query?.sources || '') || null;
     const srcs = sources && sources.length ? sources : ['jikan', 'shikimori'];
 
-    const cacheKey = `q:${q}|limit:${limit}|lang:${lang || 'na'}|src:${srcs.join(',')}`;
+    const cacheKey = `v2|q:${q}|limit:${limit}|lang:${lang || 'na'}|src:${srcs.join(',')}`;
     const cached = cache.get(cacheKey);
     if (cached) return cached;
 
     const items = await searchAnimeMultiSource({ query: q, limit, sources: srcs });
-    const ranked = rankCatalogResults(q, items);
+    const merged = mergeCatalogResults(items);
+    const withUk = await localizeUk(merged);
+    const ranked = rankCatalogResults(q, withUk);
 
     const out = {
       ok: true,
@@ -67,4 +70,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
