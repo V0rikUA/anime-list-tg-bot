@@ -69,35 +69,48 @@ function sha1(text) {
  * @returns {'en'|'ru'|'uk'}
  */
 function normLang(raw) {
-  const v = String(raw || '').toLowerCase();
+  const v = String(raw || '').trim().toLowerCase();
   if (v.startsWith('ru')) return 'ru';
   if (v.startsWith('uk')) return 'uk';
   return 'en';
 }
 
 /**
- * Translate English synopsis to RU/UK using an unofficial Google endpoint.
+ * Translate text using an unofficial Google endpoint.
  * Falls back to the input text on failure.
  *
  * @param {string} text
- * @param {unknown} targetLang
+ * @param {unknown | {from?: unknown, to: unknown}} targetLangOrOptions
  * @returns {Promise<string>}
  */
-async function translateText(text, targetLang) {
+async function translateText(text, targetLangOrOptions) {
   const t = String(text || '').trim();
   if (!t) return '';
-  const lang = normLang(targetLang);
-  if (lang === 'en') return t;
 
-  const key = `${lang}:${sha1(t)}`;
+  let from = 'auto';
+  let to = 'en';
+
+  if (typeof targetLangOrOptions === 'object' && targetLangOrOptions !== null) {
+    const opts = targetLangOrOptions;
+    const rawFrom = String(opts.from || '').trim().toLowerCase();
+    const fromNorm = rawFrom === 'ru' || rawFrom === 'uk' || rawFrom === 'en' ? rawFrom : 'auto';
+    from = fromNorm;
+    to = normLang(opts.to);
+  } else {
+    to = normLang(targetLangOrOptions);
+  }
+
+  if (from !== 'auto' && from === to) return t;
+
+  const key = `${from}:${to}:${sha1(t)}`;
   const cached = cacheGet(key);
   if (cached) return cached;
 
   // Unofficial endpoint. If it fails, we fall back to English.
   const url = new URL('https://translate.googleapis.com/translate_a/single');
   url.searchParams.set('client', 'gtx');
-  url.searchParams.set('sl', 'auto');
-  url.searchParams.set('tl', lang);
+  url.searchParams.set('sl', from);
+  url.searchParams.set('tl', to);
   url.searchParams.set('dt', 't');
   url.searchParams.set('q', t);
 
@@ -117,11 +130,11 @@ async function translateText(text, targetLang) {
 
 /**
  * @param {unknown} uidRaw
- * @returns {{source: 'jikan'|'shikimori'|'anilist', id: number, uid: string} | null}
+ * @returns {{source: 'jikan'|'shikimori'|'anilist'|'mal', id: number, uid: string} | null}
  */
 function parseUid(uidRaw) {
   const uid = String(uidRaw || '').trim();
-  const m = uid.match(/^(jikan|shikimori|anilist):(\d+)$/);
+  const m = uid.match(/^(jikan|shikimori|anilist|mal):(\d+)$/);
   if (!m) return null;
   return { source: m[1], id: Number(m[2]), uid };
 }
@@ -155,7 +168,8 @@ async function fetchJikanDetails(id) {
   return {
     source: 'jikan',
     externalId: String(id),
-    title: a?.title || a?.title_english || a?.title_japanese || `jikan:${id}`,
+    title: a?.title_english || a?.title || a?.title_japanese || `jikan:${id}`,
+    titleEn: a?.title_english || a?.title || a?.title_japanese || null,
     episodes: a?.episodes ?? null,
     seasons: Number.isFinite(seasons) ? seasons : null,
     status: a?.status ?? null,
@@ -256,7 +270,43 @@ async function fetchShikimoriDetails(id) {
     url: shikimoriAnimeLink(id),
     imageSmall: a?.image?.preview ? `${SHIKIMORI_WEB}${a.image.preview}` : null,
     imageLarge: a?.image?.original ? `${SHIKIMORI_WEB}${a.image.original}` : null,
-    synopsisEn: toPlainText(a?.description || '')
+    synopsisRu: toPlainText(a?.description || '')
+  };
+}
+
+function pickText(...values) {
+  for (const value of values) {
+    const v = String(value || '').trim();
+    if (v) return v;
+  }
+  return '';
+}
+
+function pickNum(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function mergeCanonicalMal(id, jikan, shikimori) {
+  return {
+    source: shikimori ? 'shikimori' : 'jikan',
+    externalId: String(id),
+    title: pickText(shikimori?.titleRu, jikan?.titleEn, shikimori?.title, jikan?.title, `mal:${id}`),
+    titleEn: pickText(jikan?.titleEn, jikan?.title, shikimori?.titleEn, shikimori?.title) || null,
+    titleRu: pickText(shikimori?.titleRu, shikimori?.title) || null,
+    episodes: pickNum(shikimori?.episodes, jikan?.episodes),
+    seasons: pickNum(shikimori?.seasons, jikan?.seasons),
+    status: pickText(shikimori?.status, jikan?.status) || null,
+    score: pickNum(shikimori?.score, jikan?.score),
+    url: pickText(shikimori?.url, jikan?.url) || null,
+    imageSmall: pickText(shikimori?.imageSmall, jikan?.imageSmall) || null,
+    imageLarge: pickText(shikimori?.imageLarge, jikan?.imageLarge, shikimori?.imageSmall, jikan?.imageSmall) || null,
+    synopsisEn: pickText(jikan?.synopsisEn) || null,
+    synopsisRu: pickText(shikimori?.synopsisRu) || null
   };
 }
 
@@ -266,24 +316,62 @@ export async function GET(request) {
   const lang = normLang(searchParams.get('lang'));
 
   if (!parsed) {
-    return Response.json({ ok: false, error: 'uid is required (jikan:<id> or shikimori:<id>)' }, { status: 400 });
+    return Response.json({ ok: false, error: 'uid is required (jikan:<id>, shikimori:<id>, anilist:<id>, mal:<id>)' }, { status: 400 });
   }
 
   try {
-    const details = parsed.source === 'jikan'
-      ? await fetchJikanDetails(parsed.id)
-      : (parsed.source === 'shikimori' ? await fetchShikimoriDetails(parsed.id) : await fetchAniListDetails(parsed.id));
+    let details;
+    if (parsed.source === 'jikan') {
+      details = await fetchJikanDetails(parsed.id);
+    } else if (parsed.source === 'shikimori') {
+      details = await fetchShikimoriDetails(parsed.id);
+    } else if (parsed.source === 'anilist') {
+      details = await fetchAniListDetails(parsed.id);
+    } else {
+      const [jikan, shikimori] = await Promise.all([
+        fetchJikanDetails(parsed.id).catch(() => null),
+        fetchShikimoriDetails(parsed.id).catch(() => null)
+      ]);
+      if (!jikan && !shikimori) {
+        throw new Error('title not found');
+      }
+      details = mergeCanonicalMal(parsed.id, jikan, shikimori);
+    }
 
     const titleEn = String(details.titleEn || details.title || '').trim();
-    const [titleRu, titleUk] = await Promise.all([
-      String(details.titleRu || '').trim()
-        ? Promise.resolve(String(details.titleRu).trim())
-        : (titleEn ? translateText(titleEn, 'ru') : Promise.resolve('')),
-      titleEn ? translateText(titleEn, 'uk') : Promise.resolve('')
-    ]);
+    const titleRu = String(details.titleRu || '').trim()
+      || (titleEn ? await translateText(titleEn, { from: 'en', to: 'ru' }) : '');
+    const titleUk = String(details.titleUk || '').trim()
+      || (
+        titleRu
+          ? await translateText(titleRu, { from: 'ru', to: 'uk' })
+          : (titleEn ? await translateText(titleEn, { from: 'en', to: 'uk' }) : '')
+      );
     const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
 
-    const synopsis = details.synopsisEn ? await translateText(details.synopsisEn, lang) : '';
+    const synopsisEnRaw = String(details.synopsisEn || '').trim();
+    const synopsisRuRaw = String(details.synopsisRu || '').trim();
+    const synopsisUkRaw = String(details.synopsisUk || '').trim();
+
+    const [synopsisEn, synopsisRu, synopsisUk] = await Promise.all([
+      synopsisEnRaw
+        ? Promise.resolve(synopsisEnRaw)
+        : (synopsisRuRaw ? translateText(synopsisRuRaw, { from: 'ru', to: 'en' }) : Promise.resolve('')),
+      synopsisRuRaw
+        ? Promise.resolve(synopsisRuRaw)
+        : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'ru' }) : Promise.resolve('')),
+      synopsisUkRaw
+        ? Promise.resolve(synopsisUkRaw)
+        : (
+          synopsisRuRaw
+            ? translateText(synopsisRuRaw, { from: 'ru', to: 'uk' })
+            : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'uk' }) : Promise.resolve(''))
+        )
+    ]);
+
+    const synopsis = lang === 'ru'
+      ? (synopsisRu || synopsisEn || '')
+      : (lang === 'uk' ? (synopsisUk || synopsisRu || synopsisEn || '') : (synopsisEn || synopsisRu || ''));
 
     return Response.json({
       ok: true,
@@ -294,6 +382,9 @@ export async function GET(request) {
       titleEn: titleEn || null,
       titleRu: titleRu || null,
       titleUk: titleUk || null,
+      synopsisEn: synopsisEn || null,
+      synopsisRu: synopsisRu || null,
+      synopsisUk: synopsisUk || null,
       synopsis
     });
   } catch (error) {
