@@ -4,7 +4,6 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { AnimeRepository } from './db.js';
-import { fetchAnimeDetails } from './services/animeSources.js';
 import { watchEpisodes, watchProviders, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 function pickTitleByLang(item, langRaw) {
@@ -115,15 +114,15 @@ async function listRecentProgress({ telegramUserId, limit = 5, lang = 'en' } = {
 }
 
 async function ensureAnimeInDb(repository, uid) {
-  let anime = await repository.getCatalogItem(uid);
-  if (anime) return anime;
+  const local = await repository.getCatalogItem(uid);
+  if (local) return local;
+  return repository.ensureAnimeStub(uid);
+}
 
-  const details = await fetchAnimeDetails(uid).catch(() => null);
-  if (details) {
-    await repository.upsertCatalog([details]).catch(() => null);
-    anime = await repository.getCatalogItem(uid);
-  }
-  return anime;
+async function indexAnimeInteraction(repository, uid, { title = null } = {}) {
+  const normalizedUid = String(uid || '').trim();
+  if (!normalizedUid) return null;
+  return repository.indexAnimeInteraction(normalizedUid, { title });
 }
 
 async function main() {
@@ -376,6 +375,7 @@ async function main() {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
     }
 
+    if (uid) await indexAnimeInteraction(repository, uid, { title: q || null });
     let map = uid ? await repository.getWatchMap(uid) : null;
 
     if (!q && uid) {
@@ -457,6 +457,7 @@ async function main() {
 
     try {
       await repository.ensureUser({ id: validation.telegramUserId });
+      await indexAnimeInteraction(repository, uid, { title: watchTitle || null });
       await repository.setWatchMap(uid, watchSource, watchUrl, watchTitle);
       return reply.send({ ok: true });
     } catch (err) {
@@ -556,6 +557,7 @@ async function main() {
     if (!startedVia) return reply.code(400).send({ ok: false, error: 'startedVia is required' });
 
     try {
+      await indexAnimeInteraction(repository, animeUid);
       const out = await listProgressStart({
         telegramUserId: validation.telegramUserId,
         animeUid,
