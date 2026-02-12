@@ -695,56 +695,6 @@ export class AnimeRepository {
     return created ? mapAnimeRow(created) : null;
   }
 
-
-  async indexAnimeInteraction(uidRaw, { title = null } = {}) {
-    const canonicalUid = await this.resolveCanonicalUid(uidRaw);
-    if (!canonicalUid) return null;
-
-    const existing = await this.db('anime').where({ uid: canonicalUid }).first();
-    const cleanTitle = String(title || '').trim();
-    const fallbackTitle = cleanTitle || existing?.title || 'Unknown title';
-
-    const parsed = parseUidForStub(canonicalUid);
-    const synopsis = buildSynopsisJson({
-      synopsisEn: existing?.synopsis_en ?? null,
-      synopsisRu: existing?.synopsis_ru ?? null,
-      synopsisUk: existing?.synopsis_uk ?? null
-    });
-    const posters = buildPostersJson({
-      imageSmall: existing?.image_small ?? null,
-      imageLarge: existing?.image_large ?? null
-    });
-
-    await this.db.transaction(async (trx) => {
-      await trx('anime').insert({
-        uid: parsed.uid,
-        source: parsed.source,
-        external_id: parsed.externalId,
-        title: fallbackTitle,
-        title_en: cleanTitle || null,
-        synopsis_json: JSON.stringify(synopsis),
-        posters_json: JSON.stringify(posters),
-        updated_at: this.db.fn.now()
-      }).onConflict('uid').merge({
-        source: this.db.raw('coalesce(source, excluded.source)'),
-        external_id: this.db.raw('coalesce(external_id, excluded.external_id)'),
-        updated_at: this.db.fn.now()
-      });
-
-      if (cleanTitle) {
-        await trx('anime')
-          .where({ uid: parsed.uid })
-          .andWhere((qb) => qb.whereNull('title').orWhere('title', 'Unknown title'))
-          .update({ title: cleanTitle, title_en: cleanTitle, updated_at: this.db.fn.now() });
-      }
-
-      await this.upsertTitleIndex(trx, { uid: parsed.uid, title: fallbackTitle, titleEn: cleanTitle || fallbackTitle });
-    });
-
-    const row = await this.db('anime').where({ uid: canonicalUid }).first();
-    return row ? mapAnimeRow(row) : null;
-  }
-
   async getCatalogItemLocalized(uid, lang) {
     const item = await this.getCatalogItem(uid);
     if (!item) return null;

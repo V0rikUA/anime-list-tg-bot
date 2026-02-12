@@ -5,6 +5,7 @@ import { config } from './config.js';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { AnimeRepository } from './db.js';
 import { watchEpisodes, watchProviders, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
+import { fetchAnimeDetails } from './services/animeSources.js';
 
 function pickTitleByLang(item, langRaw) {
   const lang = String(langRaw || '').trim().toLowerCase();
@@ -124,13 +125,38 @@ async function listRecentProgress({ telegramUserId, limit = 5, lang = 'en' } = {
 async function ensureAnimeInDb(repository, uid) {
   const local = await repository.getCatalogItem(uid);
   if (local) return local;
+
+  const details = await fetchAnimeDetails(uid).catch(() => null);
+  if (details) {
+    await repository.upsertAnime(details);
+    const inserted = await repository.getCatalogItem(uid);
+    if (inserted) return inserted;
+  }
+
   return repository.ensureAnimeStub(uid);
 }
 
-async function indexAnimeInteraction(repository, uid, { title = null } = {}) {
-  const normalizedUid = String(uid || '').trim();
-  if (!normalizedUid) return null;
-  return repository.indexAnimeInteraction(normalizedUid, { title });
+async function hydrateMissingAnimeForDashboard(repository, dashboard) {
+  const groups = [dashboard?.watched, dashboard?.planned, dashboard?.favorites, dashboard?.recommendedFromFriends];
+  const uids = new Set();
+  for (const group of groups) {
+    if (!Array.isArray(group)) continue;
+    for (const item of group) {
+      const uid = String(item?.uid || '').trim();
+      if (uid) uids.add(uid);
+    }
+  }
+
+  let hydrated = false;
+  for (const uid of uids) {
+    const exists = await repository.getCatalogItem(uid);
+    if (exists) continue;
+    const fetched = await fetchAnimeDetails(uid).catch(() => null);
+    if (!fetched) continue;
+    await repository.upsertAnime(fetched);
+    hydrated = true;
+  }
+  return hydrated;
 }
 
 async function main() {
@@ -200,9 +226,14 @@ async function main() {
     const validation = validateInitDataOrReply(request, reply);
     if (!validation) return;
 
-    const dashboard = await repository.getDashboard(validation.telegramUserId);
+    let dashboard = await repository.getDashboard(validation.telegramUserId);
     if (!dashboard.user) {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
+    }
+
+    const hydrated = await hydrateMissingAnimeForDashboard(repository, dashboard);
+    if (hydrated) {
+      dashboard = await repository.getDashboard(validation.telegramUserId);
     }
     let continueWatching = [];
     try {
