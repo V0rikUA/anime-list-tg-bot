@@ -70,6 +70,7 @@ const DICT = {
     menu_planned: 'Planned',
     menu_favorites: 'Favorites',
     menu_feed: 'Feed',
+    menu_continue: 'Continue',
     menu_friends: 'Friends',
     menu_invite: 'Invite',
     menu_app: 'Mini App',
@@ -96,6 +97,10 @@ const DICT = {
     watch_rebind: 'Wrong match?',
     watch_loading: 'Loading watch links...',
     watch_failed: 'Failed to load watch links.'
+    ,
+    continue_title: 'Continue watching:',
+    continue_empty: 'No started titles yet.',
+    continue_failed: 'Failed to load continue list.'
     ,
     webapp_https_required: 'Mini App button requires HTTPS. Set WEB_APP_URL to an https:// URL (for example via Cloudflared tunnel).',
     webapp_open_link: 'Mini App link: {url}'
@@ -160,6 +165,7 @@ const DICT = {
     menu_planned: 'План',
     menu_favorites: 'Избранное',
     menu_feed: 'Лента',
+    menu_continue: 'Продолжить',
     menu_friends: 'Друзья',
     menu_invite: 'Инвайт',
     menu_app: 'Mini App',
@@ -186,6 +192,10 @@ const DICT = {
     watch_rebind: 'Неправильное связывание?',
     watch_loading: 'Загружаю ссылки...',
     watch_failed: 'Не удалось загрузить ссылки.'
+    ,
+    continue_title: 'Продолжить просмотр:',
+    continue_empty: 'Пока нет начатых тайтлов.',
+    continue_failed: 'Не удалось загрузить список продолжения.'
     ,
     webapp_https_required: 'Кнопка Mini App требует HTTPS. Укажи WEB_APP_URL как https:// (например через Cloudflared туннель).',
     webapp_open_link: 'Ссылка на Mini App: {url}'
@@ -250,6 +260,7 @@ const DICT = {
     menu_planned: 'План',
     menu_favorites: 'Обране',
     menu_feed: 'Стрічка',
+    menu_continue: 'Продовжити',
     menu_friends: 'Друзі',
     menu_invite: 'Інвайт',
     menu_app: 'Mini App',
@@ -276,6 +287,10 @@ const DICT = {
     watch_rebind: 'Неправильне зіставлення?',
     watch_loading: 'Завантажую посилання...',
     watch_failed: 'Не вдалося завантажити посилання.'
+    ,
+    continue_title: 'Продовжити перегляд:',
+    continue_empty: 'Поки немає розпочатих тайтлів.',
+    continue_failed: 'Не вдалося завантажити список продовження.'
     ,
     webapp_https_required: 'Кнопка Mini App потребує HTTPS. Вкажи WEB_APP_URL як https:// (наприклад через Cloudflared тунель).',
     webapp_open_link: 'Посилання на Mini App: {url}'
@@ -314,6 +329,7 @@ export function helpText(langRaw) {
       '/recommend <uid> - рекомендовать друзьям',
       '/recommendations - твои рекомендации',
       '/feed - рекомендации от друзей',
+      '/continue - 5 последних начатых тайтлов',
       '/invite - создать инвайт токен/ссылку',
       '/join <token> - добавить друга по токену',
       '/friends - список друзей',
@@ -338,6 +354,7 @@ export function helpText(langRaw) {
       '/recommend <uid> - рекомендувати друзям',
       '/recommendations - твої рекомендації',
       '/feed - рекомендації від друзів',
+      '/continue - 5 останніх розпочатих тайтлів',
       '/invite - створити інвайт токен/посилання',
       '/join <token> - додати друга за токеном',
       '/friends - список друзів',
@@ -362,6 +379,7 @@ export function helpText(langRaw) {
       '/recommend <uid> - recommend anime to friends',
       '/recommendations - your own recommendations',
       '/feed - recommendations from friends',
+      '/continue - 5 most recently started titles',
       '/invite - generate friend invite token/link',
       '/join <token> - add friend by token',
       '/friends - show friend list',

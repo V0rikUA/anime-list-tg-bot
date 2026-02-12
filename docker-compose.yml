@@ -106,6 +106,7 @@ services:
       WATCH_API_URL: http://watch-api:8000
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
       CATALOG_SERVICE_URL: http://catalog:8080
+      LIST_SERVICE_URL: http://list:8080
       BOT_SEARCH_MODE: ${BOT_SEARCH_MODE:-catalog}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DB_CLIENT: pg

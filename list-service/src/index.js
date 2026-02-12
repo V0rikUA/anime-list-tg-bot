@@ -1,5 +1,5 @@
 import Fastify from 'fastify';
-import { buildDb } from './db/knex.js';
+import { buildDb, runMigrations } from './db/knex.js';
 import { ListRepository } from './repository.js';
 import { requireInternalToken } from './auth/internalToken.js';
 
@@ -13,6 +13,7 @@ async function main() {
   const port = envInt('PORT', 8080);
 
   const db = buildDb();
+  await runMigrations(db);
   const repo = new ListRepository(db);
 
   app.get('/healthz', async (request, reply) => {
@@ -69,6 +70,58 @@ async function main() {
     }
   });
 
+  app.post('/v1/list/:userId/progress/start', { preHandler: requireInternalToken }, async (request, reply) => {
+    const userId = request.params?.userId;
+    const animeUid = String(request.body?.animeUid || request.body?.uid || '').trim();
+    const startedVia = String(request.body?.startedVia || '').trim().toLowerCase();
+    const episodeLabel = String(request.body?.episode?.label || request.body?.episodeLabel || '').trim();
+    const episodeNumber = request.body?.episode?.number ?? request.body?.episodeNumber ?? null;
+    const source = request.body?.source ?? null;
+    const quality = request.body?.quality ?? null;
+
+    if (!animeUid) return reply.code(400).send({ ok: false, error: 'animeUid is required' });
+    if (!episodeLabel) return reply.code(400).send({ ok: false, error: 'episode.label is required' });
+    if (!startedVia) return reply.code(400).send({ ok: false, error: 'startedVia is required' });
+
+    try {
+      const out = await repo.upsertWatchProgress(userId, {
+        animeUid,
+        episodeLabel,
+        episodeNumber,
+        source,
+        quality,
+        startedVia
+      });
+      return { ok: true, ...out };
+    } catch (err) {
+      return reply.code(err?.status || 400).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.get('/v1/list/:userId/progress/recent', { preHandler: requireInternalToken }, async (request, reply) => {
+    const userId = request.params?.userId;
+    const limit = Number(request.query?.limit || 5);
+    const lang = String(request.query?.lang || '').trim().toLowerCase() || 'en';
+
+    try {
+      const out = await repo.getRecentWatchProgress(userId, { limit, lang });
+      return { ok: true, ...out };
+    } catch (err) {
+      return reply.code(err?.status || 400).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.delete('/v1/list/:userId/progress/:animeUid', { preHandler: requireInternalToken }, async (request, reply) => {
+    const userId = request.params?.userId;
+    const animeUid = String(request.params?.animeUid || '').trim();
+    try {
+      const out = await repo.deleteWatchProgress(userId, animeUid);
+      return { ok: true, ...out };
+    } catch (err) {
+      return reply.code(err?.status || 400).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
   const close = async () => {
     try {
       await db.destroy();
@@ -87,4 +140,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

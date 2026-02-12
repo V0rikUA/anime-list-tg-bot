@@ -377,6 +377,21 @@ export default function MiniAppDashboard() {
     await triggerSearch(q, nextPage);
   }
 
+  function buildContinueHref(item) {
+    const uid = String(item?.uid || '').trim();
+    if (!uid) return withMt('/');
+    const qp = new URLSearchParams();
+    const episode = String(item?.lastEpisode || '').trim();
+    const source = String(item?.lastSource || '').trim();
+    const quality = String(item?.lastQuality || '').trim();
+    if (episode) qp.set('resumeEpisode', episode);
+    if (source) qp.set('resumeSource', source);
+    if (quality) qp.set('resumeQuality', quality);
+    const suffix = qp.toString();
+    const path = `/title/${encodeURIComponent(uid)}${suffix ? `?${suffix}` : ''}`;
+    return withMt(path);
+  }
+
   function renderAnimeList(list, withWatchStats, listType) {
     if (!Array.isArray(list) || list.length === 0) {
       return <p className="empty">{t('dashboard.empty')}</p>;
@@ -469,6 +484,7 @@ export default function MiniAppDashboard() {
   const plannedCount = data?.planned?.length || 0;
   const favoritesCount = data?.favorites?.length || 0;
   const friendsCount = data?.friends?.length || 0;
+  const continueWatching = Array.isArray(data?.continueWatching) ? data.continueWatching : [];
 
   return (
     <main className="app">
@@ -520,6 +536,36 @@ export default function MiniAppDashboard() {
           <p className="label">{t('dashboard.friends')}</p>
           <p className="value">{friendsCount}</p>
         </article>
+      </section>
+
+      <section className="card">
+        <p className="section-title">{t('dashboard.continueTitle')}</p>
+        {continueWatching.length === 0 ? (
+          <p className="empty">{t('dashboard.continueEmpty')}</p>
+        ) : (
+          continueWatching.map((item) => (
+            <article className="item" key={`${item.uid}:${item.updatedAt || ''}`}>
+              <div className="item-row">
+                {item.imageSmall ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img className="thumb" src={item.imageSmall} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="thumb" />
+                )}
+                <div>
+                  <p className="item-title">{item.title}</p>
+                  <p className="item-sub">{t('dashboard.continueEpisode', { episode: item.lastEpisode || '?' })}</p>
+                  {item.lastSource ? <p className="item-sub">{t('dashboard.continueSource', { source: item.lastSource })}</p> : null}
+                </div>
+              </div>
+              <div className="item-actions">
+                <Link className="btn-chip" href={buildContinueHref(item)}>
+                  {t('dashboard.continueOpen')}
+                </Link>
+              </div>
+            </article>
+          ))
+        )}
       </section>
 
       <section className="tabs card">

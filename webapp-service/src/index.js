@@ -82,6 +82,38 @@ async function listAdd({ telegramUserId, uid, listType } = {}) {
   });
 }
 
+async function listProgressStart({ telegramUserId, animeUid, episode, source = null, quality = null, startedVia } = {}) {
+  const url = new URL(`${config.listServiceUrl}/v1/list/${encodeURIComponent(String(telegramUserId))}/progress/start`);
+  return callJson(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
+    },
+    body: {
+      animeUid,
+      episode,
+      source,
+      quality,
+      startedVia
+    }
+  });
+}
+
+async function listRecentProgress({ telegramUserId, limit = 5, lang = 'en' } = {}) {
+  const url = new URL(`${config.listServiceUrl}/v1/list/${encodeURIComponent(String(telegramUserId))}/progress/recent`);
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('lang', String(lang || 'en'));
+  return callJson(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
+    }
+  });
+}
+
 async function ensureAnimeInDb(repository, uid) {
   let anime = await repository.getCatalogItem(uid);
   if (anime) return anime;
@@ -165,7 +197,19 @@ async function main() {
     if (!dashboard.user) {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
     }
-    return { ok: true, telegramUserId: validation.telegramUserId, ...dashboard };
+    let continueWatching = [];
+    try {
+      const progressOut = await listRecentProgress({
+        telegramUserId: validation.telegramUserId,
+        limit: 5,
+        lang: dashboard.user?.lang || 'en'
+      });
+      continueWatching = Array.isArray(progressOut?.items) ? progressOut.items : [];
+    } catch {
+      continueWatching = [];
+    }
+
+    return { ok: true, telegramUserId: validation.telegramUserId, ...dashboard, continueWatching };
   });
 
   app.post('/api/webapp/invite', async (request, reply) => {
@@ -491,6 +535,39 @@ async function main() {
     try {
       const out = await watchVideos({ sourceRef });
       return reply.send(out);
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post('/api/webapp/watch/progress/start', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const animeUid = String(request.body?.animeUid || request.body?.uid || '').trim();
+    const episodeLabel = String(request.body?.episode?.label || request.body?.episodeLabel || '').trim();
+    const episodeNumber = request.body?.episode?.number ?? request.body?.episodeNumber ?? null;
+    const source = request.body?.source ?? null;
+    const quality = request.body?.quality ?? null;
+    const startedVia = String(request.body?.startedVia || '').trim().toLowerCase();
+
+    if (!animeUid) return reply.code(400).send({ ok: false, error: 'animeUid is required' });
+    if (!episodeLabel) return reply.code(400).send({ ok: false, error: 'episode.label is required' });
+    if (!startedVia) return reply.code(400).send({ ok: false, error: 'startedVia is required' });
+
+    try {
+      const out = await listProgressStart({
+        telegramUserId: validation.telegramUserId,
+        animeUid,
+        episode: {
+          label: episodeLabel,
+          ...(episodeNumber !== null && episodeNumber !== undefined ? { number: episodeNumber } : null)
+        },
+        source,
+        quality,
+        startedVia
+      });
+      return reply.send({ ok: true, ...out });
     } catch (err) {
       return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }

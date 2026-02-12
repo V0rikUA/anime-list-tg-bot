@@ -52,6 +52,7 @@ export const config = {
   watchApiUrl: process.env.WATCH_API_URL || '',
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
   catalogServiceUrl: (process.env.CATALOG_SERVICE_URL || 'http://catalog:8080').replace(/\/+$/, ''),
+  listServiceUrl: (process.env.LIST_SERVICE_URL || 'http://list:8080').replace(/\/+$/, ''),
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
   botSearchMode: String(process.env.BOT_SEARCH_MODE || 'catalog').trim().toLowerCase() === 'local' ? 'local' : 'catalog',
 
