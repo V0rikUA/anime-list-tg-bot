@@ -31,5 +31,9 @@ frontend/.env.*.local
 # Backend dependencies (if installed inside backend/)
 backend/node_modules/
 
+# Python
+__pycache__/
+*.pyc
+
 # Local helper scripts with machine-specific deployment settings
 push-env.sh

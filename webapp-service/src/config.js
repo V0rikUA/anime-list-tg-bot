@@ -45,11 +45,11 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || '',
 
   apiGatewayUrl,
-  watchApiUrl: normalizeBaseUrl(process.env.WATCH_API_URL, `${apiGatewayUrl}/api/watch`),
+  watchApiUrl: `${apiGatewayUrl}/api/watch`,
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
 
-  catalogServiceUrl: normalizeBaseUrl(process.env.CATALOG_SERVICE_URL, `${apiGatewayUrl}/api`),
-  listServiceUrl: normalizeBaseUrl(process.env.LIST_SERVICE_URL, `${apiGatewayUrl}/api`),
+  catalogServiceUrl: `${apiGatewayUrl}/api`,
+  listServiceUrl: `${apiGatewayUrl}/api`,
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
 
   // Extra diagnostic logging for Mini App issues; keep off in production.
