@@ -38,11 +38,8 @@ spec:
                 secretKeyRef:
                   name: anime-bot-secrets
                   key: TELEGRAM_BOT_USERNAME
-            - name: WATCH_API_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: anime-bot-config
-                  key: UPSTREAM_WATCH_URL
+            - name: API_GATEWAY_URL
+              value: "http://gateway:8080"
             - name: WATCH_SOURCES_ALLOWLIST
               value: ""
             - name: WEB_APP_URL
