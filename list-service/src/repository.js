@@ -288,12 +288,6 @@ export class ListRepository {
 
     return this.db.transaction(async (trx) => {
       const user = await this._ensureUserByTelegramId(trx, telegramId);
-      const anime = await trx('anime').where({ uid }).first();
-      if (!anime) {
-        const err = new Error('anime not found');
-        err.status = 404;
-        throw err;
-      }
 
       const existing = await trx('user_watch_progress')
         .where({ user_id: user.id, anime_uid: uid })
