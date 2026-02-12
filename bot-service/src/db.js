@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import knex from 'knex';
-import { fetchAnimeDetails } from './services/animeSources.js';
 import { normalizeLang, translateText } from './services/translate.js';
 
 const TRACK_LIST_TYPES = new Set(['watched', 'planned', 'favorite']);

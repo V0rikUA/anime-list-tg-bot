@@ -18,6 +18,14 @@ function pickTitleByLang(item, langRaw) {
   return en || ru || uk || 'Unknown title';
 }
 
+
+function isMeaningfulSearchQuery(valueRaw) {
+  const value = String(valueRaw || '').trim();
+  if (!value) return false;
+  const lowered = value.toLowerCase();
+  return lowered !== 'unknown title' && lowered !== 'unknown';
+}
+
 const webappSearchCache = new Map();
 function cacheGet(cache, key) {
   const hit = cache.get(key);
@@ -414,14 +422,22 @@ async function main() {
       if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
       q = String(anime.titleEn || anime.title || '').trim();
     }
-    if (!q) return reply.code(400).send({ ok: false, error: 'q or uid is required' });
+    if (!isMeaningfulSearchQuery(q)) {
+      return reply.code(400).send({ ok: false, error: 'q is required (anime title is not indexed yet)' });
+    }
 
     const preferredSource = source || map?.watchSource || '';
 
     try {
       const safeLimit = Number.isFinite(limit) ? limit : 5;
       const safePage = Number.isFinite(page) ? page : 1;
-      const out = await watchSearch({ q, source: preferredSource || null, limit: safeLimit, page: safePage });
+      let out;
+      try {
+        out = await watchSearch({ q, source: preferredSource || null, limit: safeLimit, page: safePage });
+      } catch (err) {
+        if (!preferredSource || Number(err?.status || 0) < 500) throw err;
+        out = await watchSearch({ q, source: null, limit: safeLimit, page: safePage });
+      }
       const items = Array.isArray(out?.items) ? out.items : [];
       const total = Number.isFinite(Number(out?.total)) ? Number(out.total) : null;
 
@@ -432,7 +448,13 @@ async function main() {
       }
       if (!autoPick && map?.watchUrl) {
         try {
-          const resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
+          let resolveOut;
+          try {
+            resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
+          } catch (err) {
+            if (!preferredSource || Number(err?.status || 0) < 500) throw err;
+            resolveOut = await watchSearch({ q, source: null, limit: 50, page: 1 });
+          }
           const resolveItems = Array.isArray(resolveOut?.items) ? resolveOut.items : [];
           const match = resolveItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
           if (match?.animeRef) autoPick = match;

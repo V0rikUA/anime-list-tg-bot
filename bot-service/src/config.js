@@ -19,6 +19,10 @@ if (fs.existsSync(rootEnvLocalPath)) {
   dotenv.config({ path: rootEnvLocalPath });
 }
 
+function normalizeBaseUrl(raw, fallback = "") {
+  return String(raw || fallback || "").trim().replace(/\/+$/, "");
+}
+
 /**
  * @param {string} name
  * @param {unknown} value
@@ -45,14 +49,17 @@ if (telegramWebhookUrl) {
   telegramWebhookPath = parsed.pathname || '/webhook';
 }
 
+const apiGatewayUrl = normalizeBaseUrl(process.env.API_GATEWAY_URL, 'http://gateway:8080');
+
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
 
-  watchApiUrl: process.env.WATCH_API_URL || '',
+  apiGatewayUrl,
+  watchApiUrl: normalizeBaseUrl(process.env.WATCH_API_URL, `${apiGatewayUrl}/api/watch`),
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
-  catalogServiceUrl: (process.env.CATALOG_SERVICE_URL || 'http://catalog:8080').replace(/\/+$/, ''),
-  listServiceUrl: (process.env.LIST_SERVICE_URL || 'http://list:8080').replace(/\/+$/, ''),
+  catalogServiceUrl: normalizeBaseUrl(process.env.CATALOG_SERVICE_URL, `${apiGatewayUrl}/api`),
+  listServiceUrl: normalizeBaseUrl(process.env.LIST_SERVICE_URL, `${apiGatewayUrl}/api`),
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
   botSearchMode: String(process.env.BOT_SEARCH_MODE || 'catalog').trim().toLowerCase() === 'local' ? 'local' : 'catalog',
 
