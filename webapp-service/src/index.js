@@ -406,6 +406,7 @@ async function main() {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
     }
 
+    if (uid) await indexAnimeInteraction(repository, uid, { title: q || null });
     let map = uid ? await repository.getWatchMap(uid) : null;
 
     if (!q && uid) {
@@ -487,6 +488,7 @@ async function main() {
 
     try {
       await repository.ensureUser({ id: validation.telegramUserId });
+      await indexAnimeInteraction(repository, uid, { title: watchTitle || null });
       await repository.setWatchMap(uid, watchSource, watchUrl, watchTitle);
       return reply.send({ ok: true });
     } catch (err) {
@@ -586,6 +588,7 @@ async function main() {
     if (!startedVia) return reply.code(400).send({ ok: false, error: 'startedVia is required' });
 
     try {
+      await indexAnimeInteraction(repository, animeUid);
       const out = await listProgressStart({
         telegramUserId: validation.telegramUserId,
         animeUid,
