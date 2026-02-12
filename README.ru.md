@@ -5,6 +5,7 @@
 Возможности бота:
 - поиск аниме по нескольким API (Jikan + AniList)
 - трекинг списков: просмотрено / план / избранное
+- продолжить просмотр (последний начатый эпизод для 5 последних тайтлов)
 - личный счетчик просмотров и суммарный счетчик друзей
 - рекомендации между друзьями
 - система друзей через инвайт-токен или ссылку
@@ -77,6 +78,52 @@ TLS сертификаты Caddy получит автоматически и с
 
 Health gateway: `http://localhost:8080/healthz`
 
+## Примечания по миграции (актуально)
+
+Репозиторий полностью переведен на микросервисы (HTTP-only, без брокера). Старый монолитный backend удален/разделен.
+
+Цели (MVP):
+- Сохранить работу бота и Mini App.
+- Оставить `watch-api` отдельным сервисом.
+- Гонять весь трафик через единый API Gateway.
+
+Сервисы (текущие):
+- `gateway-service`: публичный вход, request id, таймауты, ретраи GET, маршрутизация:
+- `/api/*` -> `webapp-service`
+- `/webhook` -> `bot-service`
+- `/api/v1/catalog/*` -> `catalog-service`
+- `/api/v1/list/*` -> `list-service`
+- `/api/watch/*` -> `watch-api` (rewrite prefix)
+- `webapp-service`: API Mini App (`/api/webapp/*`, dashboard), запускает миграции
+- `bot-service`: Telegram bot + webhook receiver (через gateway)
+- `catalog-service`: поиск + best-match + кэш
+- `list-service`: CRUD списков, внутренний токен (опционально в dev)
+- `watch-api`: FastAPI сервис ссылок (`/v1/health`, `/v1/search`, `/v1/episodes`, ...)
+
+Local (microservices):
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+Dev (hot reload):
+```bash
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
+```
+
+Endpoints:
+- Gateway: `http://localhost:8080/healthz`
+- Webapp service: internal (health: `http://webapp:8080/healthz`)
+- Bot service: internal (health: `http://bot:8080/healthz`)
+- Watch service: via gateway: `http://localhost:8080/api/watch/v1/health`
+
+Internal token:
+- Gateway прокидывает `X-Internal-Service-Token` в `catalog-service`/`list-service`.
+- Если `INTERNAL_SERVICE_TOKEN` пустой, сервисы принимают запросы в dev.
+
+TODO (post-MVP):
+- Перенести оставшиеся DB операции из `bot-service` в `list-service`.
+- Выделить отдельный job/cron для миграций (сейчас миграции запускает `webapp-service`).
+
 ### Каноническое объединение каталога и локализация
 
 - `catalog-service` объединяет дубли источников (`jikan:<id>` + `shikimori:<id>`) в одну каноническую запись: `uid=mal:<id>`.
@@ -130,6 +177,7 @@ docker compose exec webapp npm run migrate
 - `/recommendations`
 - `/unrecommend <uid>`
 - `/feed` (рекомендации от друзей)
+- `/continue`
 - `/invite`
 - `/join <token>`
 - `/friends`
@@ -147,6 +195,7 @@ docker compose exec webapp npm run migrate
 - `GET /` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (валидировать Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (безопасный дашборд по initData; используется Mini App)
+- `POST /api/webapp/watch/progress/start` (фиксировать старт просмотра)
 - `POST /api/webapp/watch/search` (ссылки: поиск)
 - `POST /api/webapp/watch/episodes` (ссылки: эпизоды)
 - `POST /api/webapp/watch/sources` (ссылки: источники для эпизода)
@@ -182,6 +231,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 - `users`
 - `anime`
 - `user_anime_lists` (`watched`, `planned`, `favorite`, `watch_count`)
+- `user_watch_progress` (последний начатый эпизод/источник на пользователя)
 - `user_recommendations`
 - `friendships`
 - `friend_invites`

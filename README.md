@@ -5,6 +5,7 @@
 Bot features:
 - search anime from multiple APIs (Jikan + AniList)
 - track watched / planned / favorite anime
+- continue watching (last started episode for up to 5 recent titles)
 - personal watched counter and friends watched counter
 - recommendations between friends
 - friend system via invite token or invite link
@@ -119,6 +120,52 @@ This repo uses an HTTP-only microservices layout (no broker) with:
 
 Gateway health: `http://localhost:8080/healthz`
 
+## Migration Notes (Current)
+
+This repo is now fully migrated to a microservices layout (HTTP-only, no broker). The previous monolithic backend has been removed/split.
+
+Goals (MVP):
+- Keep current bot + Mini App working.
+- Keep `watch-api` as a separate service.
+- Run everything behind a single API Gateway entrypoint.
+
+Services (current):
+- `gateway-service`: public API entrypoint, request id, timeouts, GET retries, routing:
+- `/api/*` -> `webapp-service`
+- `/webhook` -> `bot-service`
+- `/api/v1/catalog/*` -> `catalog-service`
+- `/api/v1/list/*` -> `list-service`
+- `/api/watch/*` -> `watch-api` (prefix rewrite)
+- `webapp-service`: Mini App API (`/api/webapp/*`, dashboard endpoints), runs DB migrations on startup
+- `bot-service`: Telegram bot + webhook receiver (proxied by gateway)
+- `catalog-service`: title search + deterministic best-match ranking + in-memory cache
+- `list-service`: lists CRUD (DB-backed), protected by internal token (optional in dev)
+- `watch-api`: FastAPI service for watch links (`/v1/health`, `/v1/search`, `/v1/episodes`, ...)
+
+Local (microservices):
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+Dev (hot reload):
+```bash
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
+```
+
+Endpoints:
+- Gateway: `http://localhost:8080/healthz`
+- Webapp service: internal (health: `http://webapp:8080/healthz`)
+- Bot service: internal (health: `http://bot:8080/healthz`)
+- Watch service: via gateway: `http://localhost:8080/api/watch/v1/health`
+
+Internal token:
+- Gateway injects `X-Internal-Service-Token` when proxying to `catalog-service`/`list-service`.
+- Leaving `INTERNAL_SERVICE_TOKEN` empty allows requests in dev.
+
+TODO (post-MVP):
+- Move remaining DB writes/reads out of `bot-service` into `list-service` (and other domain services).
+- Add a dedicated migration job/cron for DB migrations (currently `webapp-service` runs migrations on startup).
+
 ### Canonical catalog merge and localization
 
 - `catalog-service` merges duplicate source hits (`jikan:<id>` + `shikimori:<id>`) into one canonical record: `uid=mal:<id>`.
@@ -180,6 +227,7 @@ docker compose exec webapp npm run migrate
 - `/recommendations`
 - `/unrecommend <uid>`
 - `/feed` (recommendations from friends)
+- `/continue`
 - `/invite`
 - `/join <token>`
 - `/friends`
@@ -196,6 +244,7 @@ docker compose exec webapp npm run migrate
 - `GET /` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (validate Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (secure dashboard by initData; used by Mini App)
+- `POST /api/webapp/watch/progress/start` (record started watching event)
 - `POST /api/webapp/watch/search` (watch links: search)
 - `POST /api/webapp/watch/episodes` (watch links: episodes)
 - `POST /api/webapp/watch/sources` (watch links: sources for episode)
@@ -231,6 +280,7 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 - `users`
 - `anime`
 - `user_anime_lists` (`watched`, `planned`, `favorite`, `watch_count`)
+- `user_watch_progress` (last started episode/source per user + anime)
 - `user_recommendations`
 - `friendships`
 - `friend_invites`
