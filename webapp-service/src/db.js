@@ -2,7 +2,6 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import knex from 'knex';
-import { fetchAnimeDetails } from './services/animeSources.js';
 import { normalizeLang, translateText } from './services/translate.js';
 
 const TRACK_LIST_TYPES = new Set(['watched', 'planned', 'favorite']);
@@ -44,9 +43,11 @@ function normalizeAnime(item) {
   const titleEn = String(item?.titleEn ?? '').trim() || titleFallback;
   const titleRu = String(item?.titleRu ?? '').trim();
   const titleUk = String(item?.titleUk ?? '').trim();
-  const synopsisEn = String(item?.synopsisEn ?? '').trim();
-  const synopsisRu = String(item?.synopsisRu ?? '').trim();
-  const synopsisUk = String(item?.synopsisUk ?? '').trim();
+  const synopsisEn = String(item?.synopsisEn ?? item?.synopsis?.en ?? '').trim();
+  const synopsisRu = String(item?.synopsisRu ?? item?.synopsis?.ru ?? '').trim();
+  const synopsisUk = String(item?.synopsisUk ?? item?.synopsis?.uk ?? '').trim();
+  const imageSmall = item?.imageSmall ?? item?.posters?.small ?? null;
+  const imageLarge = item?.imageLarge ?? item?.posters?.large ?? null;
 
   const rawLegacyUids = Array.isArray(item?.legacyUids) ? item.legacyUids : [];
   const legacyUids = rawLegacyUids
@@ -66,12 +67,38 @@ function normalizeAnime(item) {
     score: item.score ?? null,
     status: item.status ?? null,
     url: item.url ?? null,
-    imageSmall: item.imageSmall ?? null,
-    imageLarge: item.imageLarge ?? null,
+    imageSmall: imageSmall ?? null,
+    imageLarge: imageLarge ?? null,
     synopsisEn: synopsisEn || null,
     synopsisRu: synopsisRu || null,
     synopsisUk: synopsisUk || null,
     legacyUids: legacyUids.length ? legacyUids : null
+  };
+}
+
+function parseJsonField(raw, fallback) {
+  const s = String(raw ?? '').trim();
+  if (!s) return fallback;
+  try {
+    const parsed = JSON.parse(s);
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function buildSynopsisJson(anime) {
+  return {
+    en: anime?.synopsisEn ?? null,
+    ru: anime?.synopsisRu ?? null,
+    uk: anime?.synopsisUk ?? null
+  };
+}
+
+function buildPostersJson(anime) {
+  return {
+    small: anime?.imageSmall ?? null,
+    large: anime?.imageLarge ?? null
   };
 }
 
@@ -81,6 +108,16 @@ function normalizeAnime(item) {
  * @returns {AnimeRow & {addedAt: string|null, watchCount: number}}
  */
 function mapAnimeRow(row) {
+  const synopsis = parseJsonField(row.synopsis_json, buildSynopsisJson({
+    synopsisEn: row.synopsis_en ?? null,
+    synopsisRu: row.synopsis_ru ?? null,
+    synopsisUk: row.synopsis_uk ?? null
+  }));
+  const posters = parseJsonField(row.posters_json, buildPostersJson({
+    imageSmall: row.image_small ?? null,
+    imageLarge: row.image_large ?? null
+  }));
+
   return {
     uid: row.uid,
     source: row.source,
@@ -98,6 +135,8 @@ function mapAnimeRow(row) {
     synopsisEn: row.synopsis_en ?? null,
     synopsisRu: row.synopsis_ru ?? null,
     synopsisUk: row.synopsis_uk ?? null,
+    synopsis,
+    posters,
     addedAt: row.added_at || null,
     watchCount: row.watch_count ?? 0
   };
@@ -116,6 +155,68 @@ function pickTitleByLang(anime, langRaw) {
   if (lang === 'ru' && ru) return ru;
   if (lang === 'uk' && uk) return uk;
   return en || ru || uk || 'Unknown title';
+}
+
+function parseUidForStub(uidRaw) {
+  const uid = String(uidRaw || '').trim();
+  const match = uid.match(/^(jikan|shikimori|anilist|mal):(\d+)$/i);
+  if (!match) return { uid, source: null, externalId: null };
+  return {
+    uid,
+    source: String(match[1] || '').toLowerCase(),
+    externalId: String(match[2] || '').trim() || null
+  };
+}
+
+function normalizeTitleForIndex(titleRaw) {
+  return String(titleRaw || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractRootTitle(titleRaw) {
+  const normalized = normalizeTitleForIndex(titleRaw);
+  if (!normalized) return '';
+
+  const cutPatterns = [
+    /\b(first|second|third|fourth|fifth|final)\s+(stage|season|part)\b/i,
+    /\b\d+\s*(st|nd|rd|th)?\s*(season|stage|part)\b/i,
+    /\b(ova|ona|movie|film|special|sp|extra|battle\s+stage|project\s+d)\b/i,
+    /(^|\s)(перв(ый|ая|ое)|втор(ой|ая|ое)|трет(ий|ья|ье)|финал(ьн(ый|ая|ое))?)\s+(этап|сезон|часть)(\s|$)/iu,
+    /(^|\s)\d+\s*(сезон|этап|часть)(\s|$)/iu,
+    /(^|\s)(фильм|спецвыпуск|спешл|ова|она|экстра|боевая\s+стадия|проект\s+ди)(\s|$)/iu
+  ];
+
+  let cutAt = normalized.length;
+  for (const pattern of cutPatterns) {
+    const match = normalized.match(pattern);
+    if (match && typeof match.index === 'number') {
+      cutAt = Math.min(cutAt, match.index);
+    }
+  }
+
+  const root = normalizeTitleForIndex(normalized.slice(0, cutAt));
+  return root || normalized;
+}
+
+function deriveTitleIndexPayload(anime) {
+  const rawTitle = anime?.titleEn || anime?.title || anime?.titleRu || anime?.titleUk || '';
+  const branchTitle = String(rawTitle || '').trim() || 'Unknown title';
+  const branchTitleNormalized = normalizeTitleForIndex(branchTitle);
+  const rootTitleNormalized = extractRootTitle(branchTitle) || branchTitleNormalized;
+  const rootTitle = rootTitleNormalized || branchTitle;
+
+  return {
+    rootKey: rootTitleNormalized || branchTitleNormalized || `uid:${anime?.uid}`,
+    rootTitle,
+    rootTitleNormalized,
+    branchTitle,
+    branchTitleNormalized
+  };
 }
 
 async function ensureTitlesI18n(animeRaw) {
@@ -164,6 +265,8 @@ async function ensureTitlesI18n(animeRaw) {
   };
 }
 
+export { normalizeTitleForIndex, extractRootTitle, deriveTitleIndexPayload };
+
 export class AnimeRepository {
   constructor(options) {
     this.client = options.client || 'sqlite3';
@@ -198,6 +301,8 @@ export class AnimeRepository {
 
     this.db = knex(knexConfig);
     this._hasAliasTable = null;
+    this._hasTitleRootsTable = null;
+    this._hasTitleBranchesTable = null;
   }
 
   async hasAliasTable() {
@@ -208,6 +313,61 @@ export class AnimeRepository {
       this._hasAliasTable = false;
     }
     return this._hasAliasTable;
+  }
+
+  async hasTitleRootsTable() {
+    if (this._hasTitleRootsTable !== null) return this._hasTitleRootsTable;
+    try {
+      this._hasTitleRootsTable = await this.db.schema.hasTable('anime_title_roots');
+    } catch {
+      this._hasTitleRootsTable = false;
+    }
+    return this._hasTitleRootsTable;
+  }
+
+  async hasTitleBranchesTable() {
+    if (this._hasTitleBranchesTable !== null) return this._hasTitleBranchesTable;
+    try {
+      this._hasTitleBranchesTable = await this.db.schema.hasTable('anime_title_branches');
+    } catch {
+      this._hasTitleBranchesTable = false;
+    }
+    return this._hasTitleBranchesTable;
+  }
+
+  async upsertTitleIndex(trx, anime) {
+    const hasRoots = await this.hasTitleRootsTable();
+    const hasBranches = await this.hasTitleBranchesTable();
+    if (!hasRoots || !hasBranches) return;
+
+    const payload = deriveTitleIndexPayload(anime);
+
+    await trx('anime_title_roots').insert({
+      root_key: payload.rootKey,
+      title_main: payload.rootTitle,
+      title_main_normalized: payload.rootTitleNormalized,
+      updated_at: this.db.fn.now()
+    }).onConflict('root_key').merge({
+      title_main: this.db.raw('excluded.title_main'),
+      title_main_normalized: this.db.raw('excluded.title_main_normalized'),
+      updated_at: this.db.fn.now()
+    });
+
+    const root = await trx('anime_title_roots').where({ root_key: payload.rootKey }).first('id');
+    if (!root?.id) return;
+
+    await trx('anime_title_branches').insert({
+      root_id: root.id,
+      anime_uid: anime.uid,
+      branch_title: payload.branchTitle,
+      branch_title_normalized: payload.branchTitleNormalized,
+      updated_at: this.db.fn.now()
+    }).onConflict('anime_uid').merge({
+      root_id: this.db.raw('excluded.root_id'),
+      branch_title: this.db.raw('excluded.branch_title'),
+      branch_title_normalized: this.db.raw('excluded.branch_title_normalized'),
+      updated_at: this.db.fn.now()
+    });
   }
 
   async resolveCanonicalUid(uidRaw) {
@@ -443,6 +603,8 @@ export class AnimeRepository {
 
     await this.db.transaction(async (trx) => {
       const rows = normalizedItems.map((normalized) => {
+        const synopsis = buildSynopsisJson(normalized);
+        const posters = buildPostersJson(normalized);
         return {
           uid: normalized.uid,
           source: normalized.source,
@@ -460,6 +622,8 @@ export class AnimeRepository {
           synopsis_en: normalized.synopsisEn,
           synopsis_ru: normalized.synopsisRu,
           synopsis_uk: normalized.synopsisUk,
+          synopsis_json: JSON.stringify(synopsis),
+          posters_json: JSON.stringify(posters),
           updated_at: this.db.fn.now()
         };
       });
@@ -480,6 +644,8 @@ export class AnimeRepository {
         synopsis_en: this.db.raw('excluded.synopsis_en'),
         synopsis_ru: this.db.raw('excluded.synopsis_ru'),
         synopsis_uk: this.db.raw('excluded.synopsis_uk'),
+        synopsis_json: this.db.raw('excluded.synopsis_json'),
+        posters_json: this.db.raw('excluded.posters_json'),
         updated_at: this.db.fn.now()
       });
 
@@ -490,6 +656,8 @@ export class AnimeRepository {
           normalized.uid,
           [normalized.uid, ...(normalized.legacyUids || [])]
         );
+        // eslint-disable-next-line no-await-in-loop
+        await this.upsertTitleIndex(trx, normalized);
       }
     });
   }
@@ -498,6 +666,33 @@ export class AnimeRepository {
     const canonicalUid = await this.resolveCanonicalUid(uid);
     const row = await this.db('anime').where({ uid: canonicalUid }).first();
     return row ? mapAnimeRow(row) : null;
+  }
+
+  async ensureAnimeStub(uidRaw) {
+    const canonicalUid = await this.resolveCanonicalUid(uidRaw);
+    if (!canonicalUid) return null;
+
+    const existing = await this.db('anime').where({ uid: canonicalUid }).first();
+    if (existing) return mapAnimeRow(existing);
+
+    const parsed = parseUidForStub(canonicalUid);
+    const synopsis = buildSynopsisJson({});
+    const posters = buildPostersJson({});
+    await this.db.transaction(async (trx) => {
+      await trx('anime').insert({
+        uid: parsed.uid,
+        source: parsed.source,
+        external_id: parsed.externalId,
+        title: 'Unknown title',
+        synopsis_json: JSON.stringify(synopsis),
+        posters_json: JSON.stringify(posters),
+        updated_at: this.db.fn.now()
+      }).onConflict('uid').ignore();
+      await this.upsertTitleIndex(trx, { uid: parsed.uid, title: 'Unknown title', titleEn: 'Unknown title' });
+    });
+
+    const created = await this.db('anime').where({ uid: canonicalUid }).first();
+    return created ? mapAnimeRow(created) : null;
   }
 
   async getCatalogItemLocalized(uid, lang) {
@@ -656,7 +851,7 @@ export class AnimeRepository {
     }
 
     const rows = await this.db('user_anime_lists as l')
-      .join('anime as a', 'a.uid', 'l.anime_uid')
+      .leftJoin('anime as a', 'a.uid', 'l.anime_uid')
       .where({ user_id: user.id, list_type: listType })
       .orderBy('l.added_at', 'desc')
       .select(
@@ -676,13 +871,16 @@ export class AnimeRepository {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
+        'a.synopsis_json',
+        'a.posters_json',
+        'l.anime_uid as list_anime_uid',
         'l.added_at',
         'l.watch_count'
       );
 
     const lang = user.lang || 'en';
     return rows.map((r) => {
-      const mapped = mapAnimeRow(r);
+      const mapped = mapAnimeRow({ ...r, uid: r.uid || r.list_anime_uid });
       return { ...mapped, title: pickTitleByLang(mapped, lang) };
     });
   }
@@ -728,7 +926,7 @@ export class AnimeRepository {
     }
 
     const rows = await this.db('user_recommendations as r')
-      .join('anime as a', 'a.uid', 'r.anime_uid')
+      .leftJoin('anime as a', 'a.uid', 'r.anime_uid')
       .where({ recommender_user_id: user.id })
       .orderBy('r.created_at', 'desc')
       .select(
@@ -748,12 +946,15 @@ export class AnimeRepository {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
+        'a.synopsis_json',
+        'a.posters_json',
+        'r.anime_uid as list_anime_uid',
         'r.created_at as added_at'
       );
 
     const lang = user.lang || 'en';
     return rows.map((r) => {
-      const mapped = mapAnimeRow(r);
+      const mapped = mapAnimeRow({ ...r, uid: r.uid || r.list_anime_uid });
       return { ...mapped, title: pickTitleByLang(mapped, lang) };
     });
   }
@@ -765,7 +966,7 @@ export class AnimeRepository {
     }
 
     const rows = await this.db('user_recommendations as r')
-      .join('anime as a', 'a.uid', 'r.anime_uid')
+      .leftJoin('anime as a', 'a.uid', 'r.anime_uid')
       .join('users as u', 'u.id', 'r.recommender_user_id')
       .join('friendships as f', 'f.friend_user_id', 'r.recommender_user_id')
       .where('f.user_id', user.id)
@@ -787,6 +988,9 @@ export class AnimeRepository {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
+        'a.synopsis_json',
+        'a.posters_json',
+        'r.anime_uid as list_anime_uid',
         'r.created_at as recommended_at',
         'u.telegram_id',
         'u.username',
@@ -796,9 +1000,11 @@ export class AnimeRepository {
     const grouped = new Map();
 
     for (const row of rows) {
-      if (!grouped.has(row.uid)) {
-        grouped.set(row.uid, {
-          uid: row.uid,
+      const resolvedUid = row.uid || row.list_anime_uid;
+      if (!resolvedUid) continue;
+      if (!grouped.has(resolvedUid)) {
+        grouped.set(resolvedUid, {
+          uid: resolvedUid,
           source: row.source,
           externalId: row.external_id,
           title: pickTitleByLang(row, user.lang || 'en'),
@@ -820,7 +1026,7 @@ export class AnimeRepository {
         });
       }
 
-      const current = grouped.get(row.uid);
+      const current = grouped.get(resolvedUid);
       current.recommendCount += 1;
 
       const recommenderName = row.username || row.first_name || `user_${row.telegram_id}`;
@@ -922,42 +1128,6 @@ export class AnimeRepository {
       this.getFriends(telegramId)
     ]);
 
-    const allAnime = [...watched, ...planned, ...favorites, ...recommendedFromFriends];
-    const missingUids = Array.from(new Set(
-      allAnime
-        .filter((a) => a && a.uid && !a.imageSmall)
-        .map((a) => String(a.uid))
-    ));
-
-    // Best-effort: enrich posters for previously saved items (older DB rows).
-    const detailsByUid = new Map();
-    const fetchLimit = 10;
-    await Promise.all(
-      missingUids.slice(0, fetchLimit).map(async (uid) => {
-        try {
-          const details = await fetchAnimeDetails(uid);
-          if (!details) return;
-          detailsByUid.set(uid, details);
-          await this.upsertAnime(details);
-        } catch {
-          // ignore enrichment failures
-        }
-      })
-    );
-
-    const mergeDetails = (item) => {
-      const d = detailsByUid.get(item.uid);
-      if (!d) return item;
-      return {
-        ...item,
-        imageSmall: item.imageSmall ?? d.imageSmall ?? null,
-        imageLarge: item.imageLarge ?? d.imageLarge ?? null,
-        synopsisEn: item.synopsisEn ?? d.synopsisEn ?? null,
-        synopsisRu: item.synopsisRu ?? d.synopsisRu ?? null,
-        synopsisUk: item.synopsisUk ?? d.synopsisUk ?? null
-      };
-    };
-
     return {
       user: user
         ? {
@@ -968,10 +1138,10 @@ export class AnimeRepository {
             lang: user.lang || null
           }
         : null,
-      watched: watched.map(mergeDetails),
-      planned: planned.map(mergeDetails),
-      favorites: favorites.map(mergeDetails),
-      recommendedFromFriends: recommendedFromFriends.map(mergeDetails),
+      watched,
+      planned,
+      favorites,
+      recommendedFromFriends,
       friends
     };
   }
@@ -1000,6 +1170,8 @@ export class AnimeRepository {
 
   async upsertAnimeInTransaction(trx, anime) {
     const normalized = await ensureTitlesI18n(anime);
+    const synopsis = buildSynopsisJson(normalized);
+    const posters = buildPostersJson(normalized);
     await trx('anime').insert({
       uid: normalized.uid,
       source: normalized.source,
@@ -1017,6 +1189,8 @@ export class AnimeRepository {
       synopsis_en: normalized.synopsisEn,
       synopsis_ru: normalized.synopsisRu,
       synopsis_uk: normalized.synopsisUk,
+      synopsis_json: JSON.stringify(synopsis),
+      posters_json: JSON.stringify(posters),
       updated_at: this.db.fn.now()
     }).onConflict('uid').merge({
       source: this.db.raw('excluded.source'),
@@ -1034,9 +1208,12 @@ export class AnimeRepository {
       synopsis_en: this.db.raw('excluded.synopsis_en'),
       synopsis_ru: this.db.raw('excluded.synopsis_ru'),
       synopsis_uk: this.db.raw('excluded.synopsis_uk'),
+      synopsis_json: this.db.raw('excluded.synopsis_json'),
+      posters_json: this.db.raw('excluded.posters_json'),
       updated_at: this.db.fn.now()
     });
     await this.upsertUidAliases(trx, normalized.uid, [normalized.uid, ...(normalized.legacyUids || [])]);
+    await this.upsertTitleIndex(trx, normalized);
   }
 
   /**
@@ -1045,42 +1222,51 @@ export class AnimeRepository {
    */
   async upsertAnime(animeRaw) {
     const anime = await ensureTitlesI18n(animeRaw);
-    await this.db('anime').insert({
-      uid: anime.uid,
-      source: anime.source,
-      external_id: anime.externalId,
-      title: anime.title,
-      title_en: anime.titleEn,
-      title_ru: anime.titleRu,
-      title_uk: anime.titleUk,
-      episodes: anime.episodes,
-      score: anime.score,
-      status: anime.status,
-      url: anime.url,
-      image_small: anime.imageSmall,
-      image_large: anime.imageLarge,
-      synopsis_en: anime.synopsisEn,
-      synopsis_ru: anime.synopsisRu,
-      synopsis_uk: anime.synopsisUk,
-      updated_at: this.db.fn.now()
-    }).onConflict('uid').merge({
-      source: this.db.raw('excluded.source'),
-      external_id: this.db.raw('excluded.external_id'),
-      title: this.db.raw('excluded.title'),
-      title_en: this.db.raw('excluded.title_en'),
-      title_ru: this.db.raw('excluded.title_ru'),
-      title_uk: this.db.raw('excluded.title_uk'),
-      episodes: this.db.raw('excluded.episodes'),
-      score: this.db.raw('excluded.score'),
-      status: this.db.raw('excluded.status'),
-      url: this.db.raw('excluded.url'),
-      image_small: this.db.raw('excluded.image_small'),
-      image_large: this.db.raw('excluded.image_large'),
-      synopsis_en: this.db.raw('excluded.synopsis_en'),
-      synopsis_ru: this.db.raw('excluded.synopsis_ru'),
-      synopsis_uk: this.db.raw('excluded.synopsis_uk'),
-      updated_at: this.db.fn.now()
+    const synopsis = buildSynopsisJson(anime);
+    const posters = buildPostersJson(anime);
+    await this.db.transaction(async (trx) => {
+      await trx('anime').insert({
+        uid: anime.uid,
+        source: anime.source,
+        external_id: anime.externalId,
+        title: anime.title,
+        title_en: anime.titleEn,
+        title_ru: anime.titleRu,
+        title_uk: anime.titleUk,
+        episodes: anime.episodes,
+        score: anime.score,
+        status: anime.status,
+        url: anime.url,
+        image_small: anime.imageSmall,
+        image_large: anime.imageLarge,
+        synopsis_en: anime.synopsisEn,
+        synopsis_ru: anime.synopsisRu,
+        synopsis_uk: anime.synopsisUk,
+        synopsis_json: JSON.stringify(synopsis),
+        posters_json: JSON.stringify(posters),
+        updated_at: this.db.fn.now()
+      }).onConflict('uid').merge({
+        source: this.db.raw('excluded.source'),
+        external_id: this.db.raw('excluded.external_id'),
+        title: this.db.raw('excluded.title'),
+        title_en: this.db.raw('excluded.title_en'),
+        title_ru: this.db.raw('excluded.title_ru'),
+        title_uk: this.db.raw('excluded.title_uk'),
+        episodes: this.db.raw('excluded.episodes'),
+        score: this.db.raw('excluded.score'),
+        status: this.db.raw('excluded.status'),
+        url: this.db.raw('excluded.url'),
+        image_small: this.db.raw('excluded.image_small'),
+        image_large: this.db.raw('excluded.image_large'),
+        synopsis_en: this.db.raw('excluded.synopsis_en'),
+        synopsis_ru: this.db.raw('excluded.synopsis_ru'),
+        synopsis_uk: this.db.raw('excluded.synopsis_uk'),
+        synopsis_json: this.db.raw('excluded.synopsis_json'),
+        posters_json: this.db.raw('excluded.posters_json'),
+        updated_at: this.db.fn.now()
+      });
+      await this.upsertUidAliases(trx, anime.uid, [anime.uid, ...(anime.legacyUids || [])]);
+      await this.upsertTitleIndex(trx, anime);
     });
-    await this.upsertUidAliases(this.db, anime.uid, [anime.uid, ...(anime.legacyUids || [])]);
   }
 }
