@@ -4,7 +4,7 @@ import { config } from './config.js';
 import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
-import { fetchAnimeDetails, searchAnime as searchAnimeLocal } from './services/animeSources.js';
+import { searchAnime as searchAnimeLocal } from './services/animeSources.js';
 import { catalogSearch } from './services/catalogClient.js';
 import { listProgressStart, listRecentProgress } from './services/listClient.js';
 import { translateShort, translateText } from './services/translate.js';
@@ -684,20 +684,6 @@ if (!bot) {
         let titleEn = String(r?.titleEn || r?.title || '').trim();
         let titleRu = String(r?.titleRu || '').trim();
         let titleUk = String(r?.titleUk || '').trim();
-
-        // Defensive: if a source returned a short payload without i18n fields,
-        // try to enrich from the details endpoint (cached in animeSources).
-        if ((lang === 'ru' && !titleRu) || (lang === 'en' && !titleEn)) {
-          const uid = String(r?.uid || '').trim();
-          if (uid) {
-            const details = await fetchAnimeDetails(uid).catch(() => null);
-            if (details) {
-              if (!titleEn) titleEn = String(details?.titleEn || details?.title || '').trim();
-              if (!titleRu) titleRu = String(details?.titleRu || '').trim();
-              if (!titleUk) titleUk = String(details?.titleUk || '').trim();
-            }
-          }
-        }
 
         if (lang === 'ru' && !titleRu) {
           titleRu = await translateShort(titleEn, 'ru').catch(() => '');

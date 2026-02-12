@@ -19,6 +19,10 @@ if (fs.existsSync(rootEnvLocalPath)) {
   dotenv.config({ path: rootEnvLocalPath });
 }
 
+function normalizeBaseUrl(raw, fallback) {
+  return String(raw || fallback || '').trim().replace(/\/+$/, '');
+}
+
 function toInt(name, value, fallback) {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -26,6 +30,8 @@ function toInt(name, value, fallback) {
   }
   return parsed;
 }
+
+const apiGatewayUrl = normalizeBaseUrl(process.env.API_GATEWAY_URL, 'http://gateway:8080');
 
 export const config = {
   port: toInt('PORT', process.env.PORT, 8080),
@@ -38,11 +44,12 @@ export const config = {
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
   databaseUrl: process.env.DATABASE_URL || '',
 
-  watchApiUrl: process.env.WATCH_API_URL || 'http://watch-api:8000',
+  apiGatewayUrl,
+  watchApiUrl: normalizeBaseUrl(process.env.WATCH_API_URL, `${apiGatewayUrl}/api/watch`),
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
 
-  catalogServiceUrl: (process.env.CATALOG_SERVICE_URL || 'http://catalog:8080').replace(/\/+$/, ''),
-  listServiceUrl: (process.env.LIST_SERVICE_URL || 'http://list:8080').replace(/\/+$/, ''),
+  catalogServiceUrl: normalizeBaseUrl(process.env.CATALOG_SERVICE_URL, `${apiGatewayUrl}/api`),
+  listServiceUrl: normalizeBaseUrl(process.env.LIST_SERVICE_URL, `${apiGatewayUrl}/api`),
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
 
   // Extra diagnostic logging for Mini App issues; keep off in production.
