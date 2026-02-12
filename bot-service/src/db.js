@@ -922,42 +922,6 @@ export class AnimeRepository {
       this.getFriends(telegramId)
     ]);
 
-    const allAnime = [...watched, ...planned, ...favorites, ...recommendedFromFriends];
-    const missingUids = Array.from(new Set(
-      allAnime
-        .filter((a) => a && a.uid && !a.imageSmall)
-        .map((a) => String(a.uid))
-    ));
-
-    // Best-effort: enrich posters for previously saved items (older DB rows).
-    const detailsByUid = new Map();
-    const fetchLimit = 10;
-    await Promise.all(
-      missingUids.slice(0, fetchLimit).map(async (uid) => {
-        try {
-          const details = await fetchAnimeDetails(uid);
-          if (!details) return;
-          detailsByUid.set(uid, details);
-          await this.upsertAnime(details);
-        } catch {
-          // ignore enrichment failures
-        }
-      })
-    );
-
-    const mergeDetails = (item) => {
-      const d = detailsByUid.get(item.uid);
-      if (!d) return item;
-      return {
-        ...item,
-        imageSmall: item.imageSmall ?? d.imageSmall ?? null,
-        imageLarge: item.imageLarge ?? d.imageLarge ?? null,
-        synopsisEn: item.synopsisEn ?? d.synopsisEn ?? null,
-        synopsisRu: item.synopsisRu ?? d.synopsisRu ?? null,
-        synopsisUk: item.synopsisUk ?? d.synopsisUk ?? null
-      };
-    };
-
     return {
       user: user
         ? {
@@ -968,10 +932,10 @@ export class AnimeRepository {
             lang: user.lang || null
           }
         : null,
-      watched: watched.map(mergeDetails),
-      planned: planned.map(mergeDetails),
-      favorites: favorites.map(mergeDetails),
-      recommendedFromFriends: recommendedFromFriends.map(mergeDetails),
+      watched,
+      planned,
+      favorites,
+      recommendedFromFriends,
       friends
     };
   }
