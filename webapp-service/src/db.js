@@ -1216,6 +1216,26 @@ export class AnimeRepository {
     await this.upsertTitleIndex(trx, normalized);
   }
 
+  async indexAnimeInteraction(uid, { title = null } = {}) {
+    const canonicalUid = await this.resolveCanonicalUid(uid);
+    if (!canonicalUid) return;
+
+    const existing = await this.db('anime').where({ uid: canonicalUid }).first();
+    if (existing) {
+      await this.db.transaction(async (trx) => {
+        await this.upsertTitleIndex(trx, mapAnimeRow(existing));
+      });
+      return;
+    }
+
+    const titleStr = String(title || '').trim();
+    if (titleStr && titleStr.toLowerCase() !== 'unknown title') {
+      await this.db.transaction(async (trx) => {
+        await this.upsertTitleIndex(trx, { uid: canonicalUid, title: titleStr, titleEn: titleStr });
+      });
+    }
+  }
+
   /**
    * Upsert anime record (used for best-effort enrichment).
    * @param {any} animeRaw
