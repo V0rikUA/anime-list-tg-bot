@@ -36,11 +36,17 @@ export function formatTrackedList(title, items, options = {}) {
     `${title} (${items.length}):`,
     ...items.map((item, idx) => {
       const base = `${idx + 1}. ${item.title} [${item.uid}]`;
-      if (!showWatchCounters) {
-        return base;
+      let line = base;
+
+      if (showWatchCounters) {
+        line = `${base} | You: ${item.userWatchCount ?? item.watchCount ?? 0}, Friends: ${item.friendsWatchCount ?? 0}`;
       }
 
-      return `${base} | You: ${item.userWatchCount ?? item.watchCount ?? 0}, Friends: ${item.friendsWatchCount ?? 0}`;
+      if (item.lastEpisode != null) {
+        line = `${line} · EP ${item.lastEpisode}`;
+      }
+
+      return line;
     })
   ].join('\n');
 }
