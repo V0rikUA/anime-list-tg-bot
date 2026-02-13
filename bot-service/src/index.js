@@ -1472,7 +1472,12 @@ if (!bot) {
 
   bot.catch(async (error, ctx) => {
     logger.error('bot error', error);
-    const lang = ctx?.from ? await ensureUserAndLang(ctx) : 'en';
+    let lang = 'en';
+    try {
+      if (ctx?.from) lang = await ensureUserAndLang(ctx);
+    } catch {
+      lang = guessLangFromTelegram(ctx?.from);
+    }
     try {
       await ctx.reply(t(lang, 'unexpected_error'));
     } catch (replyError) {
