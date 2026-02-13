@@ -136,6 +136,12 @@ async function ensureAnimeInDb(repository, uid) {
   return repository.ensureAnimeStub(uid);
 }
 
+async function indexAnimeInteraction(repository, uid, { title = null } = {}) {
+  const normalizedUid = String(uid || '').trim();
+  if (!normalizedUid) return null;
+  return repository.indexAnimeInteraction(normalizedUid, { title });
+}
+
 async function hydrateMissingAnimeForDashboard(repository, dashboard) {
   const groups = [dashboard?.watched, dashboard?.planned, dashboard?.favorites, dashboard?.recommendedFromFriends];
   const uids = new Set();
