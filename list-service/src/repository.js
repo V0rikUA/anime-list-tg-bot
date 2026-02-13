@@ -485,11 +485,30 @@ export class ListRepository {
       }
     }
 
-    return watched.map((item) => ({
-      ...item,
-      userWatchCount: Number(item.watchCount || 0),
-      friendsWatchCount: friendsCountByAnime.get(item.uid) || 0
-    }));
+    // Fetch the 5 most recently updated watch progress entries for this user.
+    const progressRows = await this.db('user_watch_progress')
+      .where({ user_id: user.id })
+      .orderBy('updated_at', 'desc')
+      .limit(5)
+      .select('anime_uid', 'last_episode', 'updated_at');
+
+    const progressByUid = new Map(
+      progressRows.map((r) => [String(r.anime_uid), {
+        lastEpisode: r.last_episode ?? null,
+        progressUpdatedAt: r.updated_at ?? null
+      }])
+    );
+
+    return watched.map((item) => {
+      const progress = progressByUid.get(String(item.uid));
+      return {
+        ...item,
+        userWatchCount: Number(item.watchCount || 0),
+        friendsWatchCount: friendsCountByAnime.get(item.uid) || 0,
+        lastEpisode: progress?.lastEpisode ?? null,
+        progressUpdatedAt: progress?.progressUpdatedAt ?? null
+      };
+    });
   }
 
   async getWatchStats(telegramIdRaw, animeUidRaw) {
