@@ -63,10 +63,6 @@ export const config = {
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
   botSearchMode: String(process.env.BOT_SEARCH_MODE || 'catalog').trim().toLowerCase() === 'local' ? 'local' : 'catalog',
 
-  dbClient: process.env.DB_CLIENT || 'sqlite3',
-  dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
-  databaseUrl: process.env.DATABASE_URL || '',
-
   port: rawPort,
   // Used for Telegram Mini App "Web App" button (must be HTTPS in Telegram).
   webAppUrl: process.env.WEB_APP_URL || `${process.env.FRONTEND_BASE_URL || 'http://localhost:3000'}/`,
@@ -87,6 +83,3 @@ export const config = {
   debugWebAppLogs: (process.env.DEBUG_WEBAPP_LOGS || '') === '1'
 };
 
-if (config.dbClient === 'pg' && !config.databaseUrl) {
-  throw new Error('DATABASE_URL is required when DB_CLIENT=pg');
-}
