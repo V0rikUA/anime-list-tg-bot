@@ -91,11 +91,11 @@ services:
     networks:
       - bot
     depends_on:
-      postgres:
-        condition: service_healthy
       watch-api:
         condition: service_started
       catalog:
+        condition: service_started
+      list:
         condition: service_started
     environment:
       PORT: 8080
@@ -105,8 +105,6 @@ services:
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
       BOT_SEARCH_MODE: ${BOT_SEARCH_MODE:-catalog}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-      DB_CLIENT: pg
-      DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
       WEB_APP_URL: ${WEB_APP_URL:-http://web-app:3000/}
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
