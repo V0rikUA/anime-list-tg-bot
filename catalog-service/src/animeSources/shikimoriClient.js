@@ -1,7 +1,7 @@
 import { BaseJsonApi } from './baseJsonApi.js';
 
-const SHIKIMORI_API = 'https://shikimori.one/api';
-const SHIKIMORI_WEB = 'https://shikimori.one';
+const SHIKIMORI_WEB = String(process.env.SHIKIMORI_BASE_URL || 'https://shikimori.me').replace(/\/+$/, '');
+const SHIKIMORI_API = `${SHIKIMORI_WEB}/api`;
 const SHIKIMORI_ORIGIN = new URL(SHIKIMORI_WEB).origin;
 
 export function shikimoriAnimeLink(id) {

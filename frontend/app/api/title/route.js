@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 
 const JIKAN_ANIME = 'https://api.jikan.moe/v4/anime';
-const SHIKIMORI_API = 'https://shikimori.one/api';
-const SHIKIMORI_WEB = 'https://shikimori.one';
+const SHIKIMORI_WEB = String(process.env.SHIKIMORI_BASE_URL || 'https://shikimori.me').replace(/\/+$/, '');
+const SHIKIMORI_API = `${SHIKIMORI_WEB}/api`;
 const ANILIST_URL = 'https://graphql.anilist.co'; // legacy (for old anilist:<id> links)
 
 /**

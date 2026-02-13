@@ -304,7 +304,10 @@ async function main() {
       const out = await catalogSearch({ q, limit: 50, lang: user.lang || 'en', sources: ['jikan', 'shikimori'] });
       const results = Array.isArray(out?.items) ? out.items : [];
       all = results;
-      cacheSet(webappSearchCache, cacheKey, all);
+      // Only cache non-empty results to avoid persisting transient API failures.
+      if (all.length > 0) {
+        cacheSet(webappSearchCache, cacheKey, all);
+      }
       try {
         await repository.upsertCatalog(all);
       } catch {
