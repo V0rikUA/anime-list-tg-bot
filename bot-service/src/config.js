@@ -13,6 +13,15 @@ const rootEnvPath = path.resolve(__dirname, '..', '..', '.env');
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
 }
+const rootEnvLocalPath = path.resolve(__dirname, '..', '..', '.env.local');
+if (fs.existsSync(rootEnvLocalPath)) {
+  // Local overrides (kept out of git), applied after `.env`.
+  dotenv.config({ path: rootEnvLocalPath });
+}
+
+function normalizeBaseUrl(raw, fallback = "") {
+  return String(raw || fallback || "").trim().replace(/\/+$/, "");
+}
 
 /**
  * @param {string} name
@@ -40,12 +49,19 @@ if (telegramWebhookUrl) {
   telegramWebhookPath = parsed.pathname || '/webhook';
 }
 
+const apiGatewayUrl = normalizeBaseUrl(process.env.API_GATEWAY_URL, 'http://gateway:8080');
+
 export const config = {
   telegramToken: process.env.TELEGRAM_BOT_TOKEN || '',
   botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
 
-  watchApiUrl: process.env.WATCH_API_URL || '',
+  apiGatewayUrl,
+  watchApiUrl: `${apiGatewayUrl}/api/watch`,
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
+  catalogServiceUrl: `${apiGatewayUrl}/api`,
+  listServiceUrl: `${apiGatewayUrl}/api`,
+  internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
+  botSearchMode: String(process.env.BOT_SEARCH_MODE || 'catalog').trim().toLowerCase() === 'local' ? 'local' : 'catalog',
 
   dbClient: process.env.DB_CLIENT || 'sqlite3',
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),

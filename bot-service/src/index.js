@@ -4,8 +4,10 @@ import { config } from './config.js';
 import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
-import { fetchAnimeDetails, searchAnime } from './services/animeSources.js';
-import { translateShort } from './services/translate.js';
+import { searchAnime as searchAnimeLocal } from './services/animeSources.js';
+import { catalogSearch } from './services/catalogClient.js';
+import { listProgressStart, listRecentProgress } from './services/listClient.js';
+import { translateShort, translateText } from './services/translate.js';
 import {
   formatFriends,
   formatRecommendationsFromFriends,
@@ -40,8 +42,19 @@ function getSession(userId) {
   if (!Array.isArray(session.stack)) session.stack = [];
   if (!('awaiting' in session)) session.awaiting = null;
   if (!('search' in session)) session.search = null;
+  if (!Array.isArray(session.continueItems)) session.continueItems = [];
 
   return session;
+}
+
+function parseEpisodeNumber(labelRaw) {
+  const label = String(labelRaw || '').trim();
+  const direct = Number(label);
+  if (Number.isFinite(direct)) return direct;
+  const m = label.match(/\d+(?:\.\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0]);
+  return Number.isFinite(n) ? n : null;
 }
 
 async function tryDeleteMessage(telegram, chatId, messageId) {
@@ -208,6 +221,9 @@ function mainMenuKeyboard(ctx, lang) {
     [
       Markup.button.callback(t(lang, 'menu_favorites'), 'menu:favorites'),
       Markup.button.callback(t(lang, 'menu_feed'), 'menu:feed'),
+      Markup.button.callback(t(lang, 'menu_continue'), 'menu:continue'),
+    ],
+    [
       Markup.button.callback(t(lang, 'menu_friends'), 'menu:friends')
     ],
     [
@@ -455,6 +471,36 @@ if (!bot) {
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
+      if (kind === 'continue') {
+        try {
+          const out = await listRecentProgress({
+            telegramUserId: String(ctx.from.id),
+            limit: 5,
+            lang
+          });
+          const items = Array.isArray(out?.items) ? out.items : [];
+          session.continueItems = items;
+
+          if (!items.length) {
+            return renderScreen(ctx, session, t(lang, 'continue_empty'), Markup.inlineKeyboard([navRow(lang)]));
+          }
+
+          const lines = [t(lang, 'continue_title'), ''];
+          const rows = [];
+          items.forEach((item, idx) => {
+            const title = String(item?.title || item?.uid || 'unknown');
+            const episode = String(item?.lastEpisode || '?');
+            const source = String(item?.lastSource || '').trim();
+            lines.push(`${idx + 1}. ${title} · EP ${episode}${source ? ` · ${source}` : ''}`);
+            rows.push([Markup.button.callback(String(idx + 1), `continue:${idx}`)]);
+          });
+          rows.push(navRow(lang));
+          return renderScreen(ctx, session, lines.join('\n'), Markup.inlineKeyboard(rows));
+        } catch {
+          return renderScreen(ctx, session, t(lang, 'continue_failed'), Markup.inlineKeyboard([navRow(lang)]));
+        }
+      }
+
       if (kind === 'friends') {
         const friends = await repository.getFriends(String(ctx.from.id));
         const text = formatFriends(friends, labels.friends);
@@ -614,7 +660,23 @@ if (!bot) {
     await renderScreen(ctx, session, t(lang, 'searching', { query }), Markup.inlineKeyboard([navRow(lang)]));
 
     try {
-      const results = await searchAnime(query, 5);
+      let results = [];
+      if (config.botSearchMode === 'catalog') {
+        try {
+          results = await catalogSearch({
+            q: query,
+            limit: 5,
+            lang,
+            sources: ['jikan', 'shikimori']
+          });
+        } catch (error) {
+          logger.warn({ err: error?.message || String(error) }, 'catalog search failed, falling back to local search');
+        }
+      }
+      if (!Array.isArray(results) || results.length === 0) {
+        results = await searchAnimeLocal(query, 5);
+      }
+
       // Persist i18n titles and show localized titles in bot UI immediately.
       const localized = await Promise.all(results.map(async (r) => {
         // Prefer localized titles from sources (e.g. Shikimori `russian`) and
@@ -623,25 +685,15 @@ if (!bot) {
         let titleRu = String(r?.titleRu || '').trim();
         let titleUk = String(r?.titleUk || '').trim();
 
-        // Defensive: if a source returned a short payload without i18n fields,
-        // try to enrich from the details endpoint (cached in animeSources).
-        if ((lang === 'ru' && !titleRu) || (lang === 'en' && !titleEn)) {
-          const uid = String(r?.uid || '').trim();
-          if (uid) {
-            const details = await fetchAnimeDetails(uid).catch(() => null);
-            if (details) {
-              if (!titleEn) titleEn = String(details?.titleEn || details?.title || '').trim();
-              if (!titleRu) titleRu = String(details?.titleRu || '').trim();
-              if (!titleUk) titleUk = String(details?.titleUk || '').trim();
-            }
-          }
-        }
-
         if (lang === 'ru' && !titleRu) {
           titleRu = await translateShort(titleEn, 'ru').catch(() => '');
         }
         if (lang === 'uk' && !titleUk) {
-          titleUk = await translateShort(titleEn, 'uk').catch(() => '');
+          if (titleRu) {
+            titleUk = await translateText(titleRu, { from: 'ru', to: 'uk' }).catch(() => '');
+          } else {
+            titleUk = await translateText(titleEn, { from: 'en', to: 'uk' }).catch(() => '');
+          }
         }
 
         const title =
@@ -815,6 +867,12 @@ if (!bot) {
     await tryDeleteUserMessage(ctx);
     const lang = await ensureUserAndLang(ctx, repository);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'feed' });
+  });
+
+  bot.command('continue', async (ctx) => {
+    await tryDeleteUserMessage(ctx);
+    const lang = await ensureUserAndLang(ctx, repository);
+    await pushAndGo(ctx, lang, { id: LIST, kind: 'continue' });
   });
 
   bot.command('friends', async (ctx) => {
@@ -1010,7 +1068,7 @@ if (!bot) {
     await renderState(ctx, lang, session.current);
   });
 
-  bot.action(/^menu:(search|watched|planned|favorites|feed|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
+  bot.action(/^menu:(search|watched|planned|favorites|feed|continue|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
     const lang = await ensureUserAndLang(ctx, repository);
@@ -1057,6 +1115,11 @@ if (!bot) {
       return;
     }
 
+    if (action === 'continue') {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'continue' });
+      return;
+    }
+
     if (action === 'friends') {
       await pushAndGo(ctx, lang, { id: LIST, kind: 'friends' });
       return;
@@ -1095,6 +1158,63 @@ if (!bot) {
 
     const picked = results[idx];
     await pushAndGo(ctx, lang, { id: ANIME_ACTIONS, uid: picked.uid });
+  });
+
+  bot.action(/^continue:(\d+)$/, async (ctx) => {
+    const session = getSession(ctx.from.id);
+    await ackCbQuery(ctx, session);
+    const lang = await ensureUserAndLang(ctx, repository);
+    const idx = Number(ctx.match?.[1] || -1);
+    const items = Array.isArray(session.continueItems) ? session.continueItems : [];
+    if (idx < 0 || idx >= items.length) {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'continue' });
+      return;
+    }
+
+    const item = items[idx];
+    const uid = String(item?.uid || '').trim();
+    if (!uid) {
+      await pushAndGo(ctx, lang, { id: LIST, kind: 'continue' });
+      return;
+    }
+
+    await startWatchFlow(ctx, lang, uid);
+
+    const resumeEpisode = String(item?.lastEpisode || '').trim();
+    if (!resumeEpisode) return;
+
+    const animeRef = String(session.watch?.animeRef || '').trim();
+    const episodes = Array.isArray(session.watch?.episodes) ? session.watch.episodes : [];
+    const episodeMatch = episodes.find((ep) => String(ep?.num || '').trim() === resumeEpisode);
+    if (!animeRef || !episodeMatch) return;
+
+    try {
+      const episodeNum = String(episodeMatch.num || '').trim();
+      if (!episodeNum) return;
+      const sourcesOut = await watchSourcesForEpisode({ animeRef, episodeNum });
+      session.watch.episodeNum = episodeNum;
+      session.watch.sources = Array.isArray(sourcesOut?.sources) ? sourcesOut.sources : [];
+      await pushAndGo(ctx, lang, { id: WATCH_SOURCES });
+
+      const resumeSource = String(item?.lastSource || '').trim().toLowerCase();
+      if (!resumeSource || !Array.isArray(session.watch.sources) || !session.watch.sources.length) return;
+
+      const sourceMatch = session.watch.sources.find((src) => {
+        const title = String(src?.title || '').trim().toLowerCase();
+        const sourceRef = String(src?.sourceRef || '').trim().toLowerCase();
+        return title === resumeSource || sourceRef === resumeSource;
+      });
+      if (!sourceMatch) return;
+
+      const sourceRef = String(sourceMatch?.sourceRef || '').trim();
+      if (!sourceRef) return;
+      const videosOut = await watchVideos({ sourceRef });
+      session.watch.sourceRef = sourceRef;
+      session.watch.videos = Array.isArray(videosOut?.videos) ? videosOut.videos : [];
+      await pushAndGo(ctx, lang, { id: WATCH_VIDEOS });
+    } catch {
+      // fall back to whatever step we already showed
+    }
   });
 
   // Backwards compatibility for old messages that still have pick:back callback.
@@ -1294,6 +1414,25 @@ if (!bot) {
     }
 
     session.watch.sourceRef = sourceRef;
+    try {
+      const progressEpisode = String(session.watch?.episodeNum || '').trim();
+      const progressUid = String(session.watch?.uid || '').trim();
+      if (progressUid && progressEpisode) {
+        await listProgressStart({
+          telegramUserId: String(ctx.from.id),
+          animeUid: progressUid,
+          episode: {
+            label: progressEpisode,
+            number: parseEpisodeNumber(progressEpisode)
+          },
+          source: String(src?.title || sourceRef || '').trim() || null,
+          quality: null,
+          startedVia: 'bot_source'
+        });
+      }
+    } catch {
+      // non-blocking
+    }
     await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
 
     try {

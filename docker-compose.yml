@@ -2,12 +2,14 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    ports:
+      - 5432:5432
+    networks:
+      - bot
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-animebot}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,12 +23,16 @@ services:
       context: ./watch-api
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - bot
 
   catalog:
     build:
       context: ./catalog-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - bot
     environment:
       PORT: 8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -39,6 +45,8 @@ services:
       context: ./list-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - bot
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,6 +60,8 @@ services:
       context: ./webapp-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - bot
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,12 +76,10 @@ services:
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
       WEBAPP_AUTH_MAX_AGE_SEC: ${WEBAPP_AUTH_MAX_AGE_SEC:-86400}
-      WATCH_API_URL: http://watch-api:8000
+      API_GATEWAY_URL: http://gateway:8080
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
-      CATALOG_SERVICE_URL: http://catalog:8080
-      LIST_SERVICE_URL: http://list:8080
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       SHIKIMORI_USER_AGENT: ${SHIKIMORI_USER_AGENT:-anime-list-tg-bot}
 
@@ -80,20 +88,26 @@ services:
       context: ./bot-service
       dockerfile: Dockerfile
     restart: unless-stopped
+    networks:
+      - bot
     depends_on:
       postgres:
         condition: service_healthy
       watch-api:
         condition: service_started
+      catalog:
+        condition: service_started
     environment:
       PORT: 8080
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
-      WATCH_API_URL: http://watch-api:8000
+      API_GATEWAY_URL: http://gateway:8080
       WATCH_SOURCES_ALLOWLIST: ${WATCH_SOURCES_ALLOWLIST:-}
+      BOT_SEARCH_MODE: ${BOT_SEARCH_MODE:-catalog}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       DB_CLIENT: pg
       DATABASE_URL: ${DATABASE_URL:-postgres://postgres:postgres@postgres:5432/animebot}
-      WEB_APP_URL: ${WEB_APP_URL:-http://localhost:3000/}
+      WEB_APP_URL: ${WEB_APP_URL:-http://web-app:3000/}
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
       TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
       TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
@@ -116,8 +130,17 @@ services:
         condition: service_started
       list:
         condition: service_started
-    ports:
-      - "8080:8080"
+    networks:
+      - bot
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.services.gateway.loadbalancer.server.port=8080"
+      - "traefik.http.routers.gateway.rule=Host(`api.indexforge.site`)"
+      - "traefik.http.routers.gateway.entrypoints=websecure"
+      - "traefik.http.routers.gateway.tls=true"
+      - "traefik.http.routers.gateway.tls.certresolver=caresolver"
     environment:
       PORT: 8080
       UPSTREAM_WEBAPP_URL: http://webapp:8080
@@ -125,7 +148,7 @@ services:
       UPSTREAM_WATCH_URL: http://watch-api:8000
       UPSTREAM_CATALOG_URL: http://catalog:8080
       UPSTREAM_LIST_URL: http://list:8080
-      UPSTREAM_TIMEOUT_MS: 10000
+      UPSTREAM_TIMEOUT_MS: ${UPSTREAM_TIMEOUT_MS:-30000}
       GET_RETRY_MAX: 2
       BACKEND_WEBHOOK_PATH: ${TELEGRAM_WEBHOOK_PATH:-/webhook}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -138,11 +161,27 @@ services:
     depends_on:
       gateway:
         condition: service_started
-    ports:
-      - "3000:3000"
+    networks:
+      - bot
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.frontend.rule=Host(`mini.indexforge.site`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=caresolver"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
     environment:
       BACKEND_URL: http://gateway:8080
       MINIAPP_ACCESS_TOKEN: ${MINIAPP_ACCESS_TOKEN:-}
 
 volumes:
   postgres_data:
+
+networks:
+  bot:
+    driver: bridge
+    name: bot
+  traefik:
+    external: true

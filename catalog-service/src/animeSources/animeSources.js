@@ -18,6 +18,9 @@ function normalize(item) {
     titleEn: item.titleEn ?? null,
     titleRu: item.titleRu ?? null,
     titleUk: item.titleUk ?? null,
+    synopsisEn: item.synopsisEn ?? null,
+    synopsisRu: item.synopsisRu ?? null,
+    synopsisUk: item.synopsisUk ?? null,
     episodes: item.episodes ?? null,
     score: item.score ?? null,
     status: item.status ?? null,
@@ -42,11 +45,13 @@ async function searchJikan(query, limit) {
     uid: `jikan:${anime.mal_id}`,
     source: 'jikan',
     externalId: anime.mal_id,
-    title: anime.title || anime.title_english || anime.title_japanese || 'Unknown title',
+    title: anime.title_english || anime.title || anime.title_japanese || 'Unknown title',
+    titleEn: anime.title_english || anime.title || anime.title_japanese || null,
     episodes: anime.episodes ?? null,
     score: scoreToNumber(anime.score),
     status: anime.status ?? null,
     url: anime.url ?? null,
+    synopsisEn: anime.synopsis ?? null,
     imageSmall: anime?.images?.jpg?.image_url || null,
     imageLarge: anime?.images?.jpg?.large_image_url || anime?.images?.jpg?.image_url || null
   }));
@@ -66,6 +71,7 @@ async function searchShikimori(query, limit) {
       title,
       titleEn: titleEn || title,
       titleRu: titleRu || null,
+      synopsisRu: anime?.description ? String(anime.description) : null,
       episodes: anime?.episodes ?? null,
       score: scoreToNumber(anime?.score),
       status: anime?.status ?? null,
@@ -108,6 +114,7 @@ async function searchAniList(query, limit) {
     source: 'anilist',
     externalId: anime.id,
     title: anime?.title?.english || anime?.title?.romaji || anime?.title?.native || 'Unknown title',
+    titleEn: anime?.title?.english || anime?.title?.romaji || anime?.title?.native || null,
     episodes: anime?.episodes ?? null,
     score: scoreToNumber(anime?.averageScore ? anime.averageScore / 10 : null),
     status: anime?.status ?? null,
@@ -135,4 +142,3 @@ export async function searchAnimeMultiSource({ query, limit = 10, sources = ['ji
   const parts = await Promise.all(tasks);
   return parts.flat();
 }
-

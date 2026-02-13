@@ -4,8 +4,8 @@ import cors from '@fastify/cors';
 import { config } from './config.js';
 import { validateTelegramWebAppInitData } from './telegramAuth.js';
 import { AnimeRepository } from './db.js';
+import { watchEpisodes, watchProviders, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 import { fetchAnimeDetails } from './services/animeSources.js';
-import { watchEpisodes, watchSearch, watchSourcesForEpisode, watchVideos } from './services/watchApiClient.js';
 
 function pickTitleByLang(item, langRaw) {
   const lang = String(langRaw || '').trim().toLowerCase();
@@ -16,6 +16,14 @@ function pickTitleByLang(item, langRaw) {
   if (lang === 'ru' && ru) return ru;
   if (lang === 'uk' && uk) return uk;
   return en || ru || uk || 'Unknown title';
+}
+
+
+function isMeaningfulSearchQuery(valueRaw) {
+  const value = String(valueRaw || '').trim();
+  if (!value) return false;
+  const lowered = value.toLowerCase();
+  return lowered !== 'unknown title' && lowered !== 'unknown';
 }
 
 const webappSearchCache = new Map();
@@ -82,16 +90,73 @@ async function listAdd({ telegramUserId, uid, listType } = {}) {
   });
 }
 
+async function listProgressStart({ telegramUserId, animeUid, episode, source = null, quality = null, startedVia } = {}) {
+  const url = new URL(`${config.listServiceUrl}/v1/list/${encodeURIComponent(String(telegramUserId))}/progress/start`);
+  return callJson(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
+    },
+    body: {
+      animeUid,
+      episode,
+      source,
+      quality,
+      startedVia
+    }
+  });
+}
+
+async function listRecentProgress({ telegramUserId, limit = 5, lang = 'en' } = {}) {
+  const url = new URL(`${config.listServiceUrl}/v1/list/${encodeURIComponent(String(telegramUserId))}/progress/recent`);
+  url.searchParams.set('limit', String(limit));
+  url.searchParams.set('lang', String(lang || 'en'));
+  return callJson(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(config.internalServiceToken ? { 'X-Internal-Service-Token': config.internalServiceToken } : null)
+    }
+  });
+}
+
 async function ensureAnimeInDb(repository, uid) {
-  let anime = await repository.getCatalogItem(uid);
-  if (anime) return anime;
+  const local = await repository.getCatalogItem(uid);
+  if (local) return local;
 
   const details = await fetchAnimeDetails(uid).catch(() => null);
   if (details) {
-    await repository.upsertCatalog([details]).catch(() => null);
-    anime = await repository.getCatalogItem(uid);
+    await repository.upsertAnime(details);
+    const inserted = await repository.getCatalogItem(uid);
+    if (inserted) return inserted;
   }
-  return anime;
+
+  return repository.ensureAnimeStub(uid);
+}
+
+async function hydrateMissingAnimeForDashboard(repository, dashboard) {
+  const groups = [dashboard?.watched, dashboard?.planned, dashboard?.favorites, dashboard?.recommendedFromFriends];
+  const uids = new Set();
+  for (const group of groups) {
+    if (!Array.isArray(group)) continue;
+    for (const item of group) {
+      const uid = String(item?.uid || '').trim();
+      if (uid) uids.add(uid);
+    }
+  }
+
+  let hydrated = false;
+  for (const uid of uids) {
+    const exists = await repository.getCatalogItem(uid);
+    if (exists) continue;
+    const fetched = await fetchAnimeDetails(uid).catch(() => null);
+    if (!fetched) continue;
+    await repository.upsertAnime(fetched);
+    hydrated = true;
+  }
+  return hydrated;
 }
 
 async function main() {
@@ -161,11 +226,28 @@ async function main() {
     const validation = validateInitDataOrReply(request, reply);
     if (!validation) return;
 
-    const dashboard = await repository.getDashboard(validation.telegramUserId);
+    let dashboard = await repository.getDashboard(validation.telegramUserId);
     if (!dashboard.user) {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
     }
-    return { ok: true, telegramUserId: validation.telegramUserId, ...dashboard };
+
+    const hydrated = await hydrateMissingAnimeForDashboard(repository, dashboard);
+    if (hydrated) {
+      dashboard = await repository.getDashboard(validation.telegramUserId);
+    }
+    let continueWatching = [];
+    try {
+      const progressOut = await listRecentProgress({
+        telegramUserId: validation.telegramUserId,
+        limit: 5,
+        lang: dashboard.user?.lang || 'en'
+      });
+      continueWatching = Array.isArray(progressOut?.items) ? progressOut.items : [];
+    } catch {
+      continueWatching = [];
+    }
+
+    return { ok: true, telegramUserId: validation.telegramUserId, ...dashboard, continueWatching };
   });
 
   app.post('/api/webapp/invite', async (request, reply) => {
@@ -239,6 +321,8 @@ async function main() {
       return {
         uid: it.uid,
         source: it.source,
+        legacyUids: Array.isArray(it.legacyUids) ? it.legacyUids : [],
+        sourceRefs: it.sourceRefs || null,
         url: it.url || null,
         score: it.score ?? null,
         episodes: it.episodes ?? null,
@@ -248,6 +332,9 @@ async function main() {
         titleEn: row.titleEn || it.titleEn || it.title || null,
         titleRu: row.titleRu || it.titleRu || null,
         titleUk: row.titleUk || it.titleUk || null,
+        synopsisEn: row.synopsisEn || it.synopsisEn || null,
+        synopsisRu: row.synopsisRu || it.synopsisRu || null,
+        synopsisUk: row.synopsisUk || it.synopsisUk || null,
         title: pickTitleByLang(row, user.lang || 'en')
       };
     });
@@ -278,6 +365,22 @@ async function main() {
     } catch (err) {
       return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
+  });
+
+  app.post('/api/webapp/list/remove', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const uid = String(request.body?.uid || '').trim();
+    const listType = String(request.body?.listType || '').trim().toLowerCase();
+    if (!uid) return reply.code(400).send({ ok: false, error: 'uid is required' });
+    if (!listType) return reply.code(400).send({ ok: false, error: 'listType is required' });
+    if (!['planned', 'favorite', 'watched'].includes(listType)) {
+      return reply.code(400).send({ ok: false, error: 'invalid listType' });
+    }
+
+    const removed = await repository.removeFromTrackedList(validation.telegramUserId, listType, uid);
+    return reply.send({ ok: true, removed });
   });
 
   app.post('/api/webapp/recommend/add', async (request, reply) => {
@@ -311,6 +414,7 @@ async function main() {
       return reply.code(404).send({ ok: false, error: 'User not found. Open bot and run /start first.' });
     }
 
+    if (uid) await indexAnimeInteraction(repository, uid, { title: q || null });
     let map = uid ? await repository.getWatchMap(uid) : null;
 
     if (!q && uid) {
@@ -318,14 +422,22 @@ async function main() {
       if (!anime) return reply.code(404).send({ ok: false, error: 'anime not found' });
       q = String(anime.titleEn || anime.title || '').trim();
     }
-    if (!q) return reply.code(400).send({ ok: false, error: 'q or uid is required' });
+    if (!isMeaningfulSearchQuery(q)) {
+      return reply.code(400).send({ ok: false, error: 'q is required (anime title is not indexed yet)' });
+    }
 
     const preferredSource = source || map?.watchSource || '';
 
     try {
       const safeLimit = Number.isFinite(limit) ? limit : 5;
       const safePage = Number.isFinite(page) ? page : 1;
-      const out = await watchSearch({ q, source: preferredSource || null, limit: safeLimit, page: safePage });
+      let out;
+      try {
+        out = await watchSearch({ q, source: preferredSource || null, limit: safeLimit, page: safePage });
+      } catch (err) {
+        if (!preferredSource || Number(err?.status || 0) < 500) throw err;
+        out = await watchSearch({ q, source: null, limit: safeLimit, page: safePage });
+      }
       const items = Array.isArray(out?.items) ? out.items : [];
       const total = Number.isFinite(Number(out?.total)) ? Number(out.total) : null;
 
@@ -336,7 +448,13 @@ async function main() {
       }
       if (!autoPick && map?.watchUrl) {
         try {
-          const resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
+          let resolveOut;
+          try {
+            resolveOut = await watchSearch({ q, source: preferredSource || null, limit: 50, page: 1 });
+          } catch (err) {
+            if (!preferredSource || Number(err?.status || 0) < 500) throw err;
+            resolveOut = await watchSearch({ q, source: null, limit: 50, page: 1 });
+          }
           const resolveItems = Array.isArray(resolveOut?.items) ? resolveOut.items : [];
           const match = resolveItems.find((it) => String(it?.url || '').trim() === String(map.watchUrl).trim());
           if (match?.animeRef) autoPick = match;
@@ -392,6 +510,7 @@ async function main() {
 
     try {
       await repository.ensureUser({ id: validation.telegramUserId });
+      await indexAnimeInteraction(repository, uid, { title: watchTitle || null });
       await repository.setWatchMap(uid, watchSource, watchUrl, watchTitle);
       return reply.send({ ok: true });
     } catch (err) {
@@ -413,6 +532,21 @@ async function main() {
       return reply.send({ ok: true });
     } catch (err) {
       return reply.code(400).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post('/api/webapp/watch/providers', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    try {
+      const out = await watchProviders();
+      return reply.send({
+        ok: true,
+        sources: Array.isArray(out?.sources) ? out.sources : []
+      });
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
   });
 
@@ -455,6 +589,40 @@ async function main() {
     try {
       const out = await watchVideos({ sourceRef });
       return reply.send(out);
+    } catch (err) {
+      return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
+    }
+  });
+
+  app.post('/api/webapp/watch/progress/start', async (request, reply) => {
+    const validation = validateInitDataOrReply(request, reply);
+    if (!validation) return;
+
+    const animeUid = String(request.body?.animeUid || request.body?.uid || '').trim();
+    const episodeLabel = String(request.body?.episode?.label || request.body?.episodeLabel || '').trim();
+    const episodeNumber = request.body?.episode?.number ?? request.body?.episodeNumber ?? null;
+    const source = request.body?.source ?? null;
+    const quality = request.body?.quality ?? null;
+    const startedVia = String(request.body?.startedVia || '').trim().toLowerCase();
+
+    if (!animeUid) return reply.code(400).send({ ok: false, error: 'animeUid is required' });
+    if (!episodeLabel) return reply.code(400).send({ ok: false, error: 'episode.label is required' });
+    if (!startedVia) return reply.code(400).send({ ok: false, error: 'startedVia is required' });
+
+    try {
+      await indexAnimeInteraction(repository, animeUid);
+      const out = await listProgressStart({
+        telegramUserId: validation.telegramUserId,
+        animeUid,
+        episode: {
+          label: episodeLabel,
+          ...(episodeNumber !== null && episodeNumber !== undefined ? { number: episodeNumber } : null)
+        },
+        source,
+        quality,
+        startedVia
+      });
+      return reply.send({ ok: true, ...out });
     } catch (err) {
       return reply.code(err?.status || 502).send({ ok: false, error: err?.message || String(err) });
     }
@@ -509,4 +677,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

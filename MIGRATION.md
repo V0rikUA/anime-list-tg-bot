@@ -20,18 +20,33 @@ This repo is now fully migrated to a microservices layout (HTTP-only, no broker)
 - `list-service`: lists CRUD (DB-backed), protected by internal token (optional in dev)
 - `watch-api`: FastAPI service for watch links (`/v1/health`, `/v1/search`, `/v1/episodes`, ...)
 
+## Canonical UID + dedupe (current)
+- `catalog-service` now deduplicates `jikan` + `shikimori` by MAL ID and emits canonical `uid=mal:<id>`.
+- Search response includes:
+  - `legacyUids` (e.g. `["jikan:185","shikimori:185"]`)
+  - `sourceRefs` (source-level refs/urls)
+  - optional `synopsisRu`, `synopsisUk`
+- Localization policy:
+  - RU title/synopsis from Shikimori
+  - EN title/synopsis from Jikan
+  - UK title/synopsis translated RU->UK with EN->UK fallback
+
+Backward compatibility:
+- `webapp-service`, `bot-service`, and `list-service` resolve legacy source UIDs through `anime_uid_aliases`.
+- Existing actions with old `jikan:*` / `shikimori:*` UIDs continue to work.
+
 ## Local (microservices)
 
-Default local run (includes gateway + internal services; frontend is optional):
+Local run (with ports exposed to host):
 
 ```bash
-docker compose up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Dev (hot reload):
 
 ```bash
-docker compose -f docker-compose.dev.yml --profile frontend up --build
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
 ```
 
 Endpoints:
@@ -70,6 +85,7 @@ Required `.env`:
 - `MINI_HOST=mini.indexforge.site`
 - `API_HOST=api.indexforge.site`
 - `TRAEFIK_ACME_EMAIL=you@example.com`
+- `BOT_SEARCH_MODE=catalog` (recommended)
 
 ## Mini App API base
 In docker compose, `frontend` is configured with `BACKEND_URL=http://gateway:8080`.

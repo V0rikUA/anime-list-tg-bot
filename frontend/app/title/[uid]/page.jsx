@@ -24,9 +24,12 @@ export default function TitlePage() {
     loading: false,
     error: '',
     step: 'idle', // idle | titles | episodes | sources | videos
+    availableSources: [],
+    selectedSource: '',
     animeRef: '',
     episodeNum: '',
     sourceRef: '',
+    sourceTitle: '',
     map: null,
     titles: [],
     episodes: [],
@@ -37,6 +40,7 @@ export default function TitlePage() {
   const [playerState, setPlayerState] = useState({ open: false, url: '', label: '' });
   const [playerError, setPlayerError] = useState('');
   const videoRef = useRef(null);
+  const resumeRef = useRef({ episode: '', source: '', autoStarted: false, episodePicked: false, sourcePicked: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -71,8 +75,18 @@ export default function TitlePage() {
     try {
       const q = new URLSearchParams(window.location.search);
       setMt(String(q.get('mt') || '').trim());
+      resumeRef.current.episode = String(q.get('resumeEpisode') || '').trim();
+      resumeRef.current.source = String(q.get('resumeSource') || '').trim();
+      resumeRef.current.autoStarted = false;
+      resumeRef.current.episodePicked = false;
+      resumeRef.current.sourcePicked = false;
     } catch {
       setMt('');
+      resumeRef.current.episode = '';
+      resumeRef.current.source = '';
+      resumeRef.current.autoStarted = false;
+      resumeRef.current.episodePicked = false;
+      resumeRef.current.sourcePicked = false;
     }
   }, []);
 
@@ -209,6 +223,109 @@ export default function TitlePage() {
     return t('title.watchAuto');
   }
 
+  function parseEpisodeNumber(label) {
+    const direct = Number(label);
+    if (Number.isFinite(direct)) return direct;
+    const m = String(label || '').match(/\d+(?:\.\d+)?/);
+    if (!m) return null;
+    const n = Number(m[0]);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  async function reportWatchStart(video) {
+    const initData = getInitData();
+    if (!initData || !uid) return;
+    const episodeLabel = String(watchState.episodeNum || '').trim();
+    if (!episodeLabel) return;
+
+    const source = String(watchState.sourceTitle || watchState.selectedSource || watchState.sourceRef || '').trim();
+    const quality = qualityLabel(video);
+
+    const payload = {
+      initData,
+      animeUid: uid,
+      episode: {
+        label: episodeLabel,
+        number: parseEpisodeNumber(episodeLabel)
+      },
+      ...(source ? { source } : null),
+      ...(quality ? { quality } : null),
+      startedVia: 'webapp_quality'
+    };
+
+    try {
+      await fetch('/api/webapp/watch/progress/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        keepalive: true
+      });
+      return;
+    } catch {
+      // fallback below
+    }
+
+    try {
+      if (navigator?.sendBeacon) {
+        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+        navigator.sendBeacon('/api/webapp/watch/progress/start', blob);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  const selectedWatchProvider = useMemo(
+    () => watchState.availableSources.find((s) => s.name === watchState.selectedSource) || null,
+    [watchState.availableSources, watchState.selectedSource]
+  );
+
+  async function watchLoadProviders() {
+    const initData = getInitData();
+    if (!initData) return;
+
+    const response = await fetch('/api/webapp/watch/providers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData })
+    });
+    const json = await response.json().catch(() => null);
+    if (!response.ok || !json?.ok) {
+      throw new Error(json?.error || json?.detail || t('title.watchErr'));
+    }
+
+    const sources = Array.isArray(json.sources)
+      ? json.sources
+        .map((it) => ({
+          name: String(it?.name || '').trim().toLowerCase(),
+          note: String(it?.note || '').trim()
+        }))
+        .filter((it) => Boolean(it.name))
+      : [];
+
+    setWatchState((s) => ({
+      ...s,
+      availableSources: sources,
+      selectedSource: sources.some((it) => it.name === s.selectedSource) ? s.selectedSource : ''
+    }));
+  }
+
+  useEffect(() => {
+    if (!uid) return;
+    watchLoadProviders().catch(() => null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid || !state.data || state.loading) return;
+    const resumeEpisode = String(resumeRef.current.episode || '').trim();
+    if (!resumeEpisode) return;
+    if (resumeRef.current.autoStarted) return;
+    resumeRef.current.autoStarted = true;
+    watchFindTitles().catch(() => null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uid, state.data, state.loading]);
+
   async function watchFindTitles(page = 1) {
     const initData = getInitData();
     if (!initData) {
@@ -219,10 +336,17 @@ export default function TitlePage() {
     if (!uid) return;
 
     setWatchState((s) => ({ ...s, loading: true, error: '', step: 'idle' }));
+    const selectedSource = String(watchState.selectedSource || '').trim();
     const response = await fetch('/api/webapp/watch/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ initData, uid, limit: 5, page })
+      body: JSON.stringify({
+        initData,
+        uid,
+        limit: 5,
+        page,
+        ...(selectedSource ? { source: selectedSource } : null)
+      })
     });
     const json = await response.json().catch(() => null);
     if (!response.ok || !json?.ok) {
@@ -254,7 +378,8 @@ export default function TitlePage() {
       videos: [],
       animeRef: '',
       episodeNum: '',
-      sourceRef: ''
+      sourceRef: '',
+      sourceTitle: ''
     }));
   }
 
@@ -304,7 +429,8 @@ export default function TitlePage() {
       sources: [],
       videos: [],
       episodeNum: '',
-      sourceRef: ''
+      sourceRef: '',
+      sourceTitle: ''
     }));
   }
 
@@ -330,6 +456,7 @@ export default function TitlePage() {
       animeRef: '',
       episodeNum: '',
       sourceRef: '',
+      sourceTitle: '',
       map: null,
       titles: [],
       episodes: [],
@@ -364,7 +491,8 @@ export default function TitlePage() {
       step: 'sources',
       sources,
       videos: [],
-      sourceRef: ''
+      sourceRef: '',
+      sourceTitle: ''
     }));
   }
 
@@ -373,7 +501,14 @@ export default function TitlePage() {
     const sourceRef = String(src?.sourceRef || '').trim();
     if (!initData || !sourceRef) return;
 
-    setWatchState((s) => ({ ...s, loading: true, error: '', sourceRef, step: 'sources' }));
+    setWatchState((s) => ({
+      ...s,
+      loading: true,
+      error: '',
+      sourceRef,
+      sourceTitle: String(src?.title || '').trim(),
+      step: 'sources'
+    }));
     const response = await fetch('/api/webapp/watch/videos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -392,6 +527,36 @@ export default function TitlePage() {
       videos
     }));
   }
+
+  useEffect(() => {
+    if (watchState.step !== 'episodes') return;
+    if (resumeRef.current.episodePicked) return;
+    const resumeEpisode = String(resumeRef.current.episode || '').trim();
+    if (!resumeEpisode) return;
+
+    const match = (watchState.episodes || []).find((ep) => String(ep?.num || '').trim() === resumeEpisode);
+    if (!match) return;
+    resumeRef.current.episodePicked = true;
+    watchPickEpisode(match).catch(() => null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchState.step, watchState.episodes]);
+
+  useEffect(() => {
+    if (watchState.step !== 'sources') return;
+    if (resumeRef.current.sourcePicked) return;
+    const resumeSource = String(resumeRef.current.source || '').trim().toLowerCase();
+    if (!resumeSource) return;
+
+    const match = (watchState.sources || []).find((src) => {
+      const title = String(src?.title || '').trim().toLowerCase();
+      const sourceRef = String(src?.sourceRef || '').trim().toLowerCase();
+      return title === resumeSource || sourceRef === resumeSource;
+    });
+    if (!match) return;
+    resumeRef.current.sourcePicked = true;
+    watchPickSource(match).catch(() => null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchState.step, watchState.sources]);
 
   return (
     <main className={`app ${playerState.open ? 'has-player' : ''}`}>
@@ -474,6 +639,38 @@ export default function TitlePage() {
             <p className="section-title">{t('title.watchTitle')}</p>
             <p className="meta">{t('title.watchHint')}</p>
             <div className="invite-actions">
+              <div className="watch-source-row">
+                <p className="meta">{t('title.watchProvider')}</p>
+                <select
+                  className="select select--full"
+                  value={watchState.selectedSource}
+                  onChange={(e) => {
+                    const next = String(e.target.value || '').trim().toLowerCase();
+                    setWatchState((s) => ({
+                      ...s,
+                      selectedSource: next,
+                      error: '',
+                      step: 'idle',
+                      animeRef: '',
+                      episodeNum: '',
+                      sourceRef: '',
+                      sourceTitle: '',
+                      map: null,
+                      titles: [],
+                      episodes: [],
+                      sources: [],
+                      videos: []
+                    }));
+                  }}
+                >
+                  <option value="">{t('title.watchProviderAuto')}</option>
+                  {watchState.availableSources.map((src) => (
+                    <option key={src.name} value={src.name}>{src.name}</option>
+                  ))}
+                </select>
+                {selectedWatchProvider?.note ? <p className="meta">{selectedWatchProvider.note}</p> : null}
+              </div>
+
               <button
                 className="btn"
                 type="button"
@@ -563,6 +760,7 @@ export default function TitlePage() {
                           key={`${idx}:${v.url}`}
                           type="button"
                           onClick={() => {
+                            reportWatchStart(v).catch(() => null);
                             setPlayerState({
                               open: true,
                               url: String(v.url || ''),

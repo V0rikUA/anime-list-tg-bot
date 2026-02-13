@@ -1,6 +1,7 @@
 import Script from 'next/script';
 import './globals.css';
 import Providers from '../lib/Providers';
+import ClarityInit from '../lib/ClarityInit';
 
 export const metadata = {
   title: 'Anime Dashboard',
@@ -23,6 +24,7 @@ export default function RootLayout({ children }) {
         <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
       </head>
       <body>
+        <ClarityInit />
         <Providers>{children}</Providers>
       </body>
     </html>

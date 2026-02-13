@@ -40,17 +40,10 @@ spec:
                   key: TELEGRAM_BOT_USERNAME
             - name: WEBAPP_AUTH_MAX_AGE_SEC
               value: "86400"
-            - name: WATCH_API_URL
-              valueFrom:
-                configMapKeyRef:
-                  name: anime-bot-config
-                  key: UPSTREAM_WATCH_URL
+            - name: API_GATEWAY_URL
+              value: "http://gateway:8080"
             - name: WATCH_SOURCES_ALLOWLIST
               value: ""
-            - name: CATALOG_SERVICE_URL
-              value: "http://catalog:8080"
-            - name: LIST_SERVICE_URL
-              value: "http://list:8080"
             - name: INTERNAL_SERVICE_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -217,6 +217,10 @@ async def sources():
         SourceInfo(name="anilibria", note="May require CIS/Baltic IP."),
         SourceInfo(name="aniliberty", note="May require CIS/Baltic IP."),
         SourceInfo(name="jutsu", note="May require CIS/Baltic IP."),
+        SourceInfo(name="sameband", note="May require CIS/Baltic IP."),
+        SourceInfo(name="yummy_anime_org", note="May require CIS/Baltic IP."),
+        SourceInfo(name="yummy_anime", note="May require CIS/Baltic IP."),
+        SourceInfo(name="anilib_me", note="May require CIS/Baltic IP."),
     ]
     return {"ok": True, "sources": curated}
 
@@ -237,7 +241,18 @@ async def search(
     if source:
         sources_to_try = [_safe_str(source, 64).lower()]
     else:
-        sources_to_try = ["animego", "animevost", "anilibria"]
+        # Keep default fan-out aligned with the curated providers list.
+        sources_to_try = [
+            "animego",
+            "animevost",
+            "anilibria",
+            "aniliberty",
+            "jutsu",
+            "sameband",
+            "yummy_anime_org",
+            "yummy_anime",
+            "anilib_me",
+        ]
 
     items: List[SearchItem] = []
     errors: List[str] = []

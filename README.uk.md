@@ -5,6 +5,7 @@
 Можливості бота:
 - пошук аніме через кілька API (Jikan + AniList)
 - трекінг списків: переглянуте / план / обране
+- продовжити перегляд (останній розпочатий епізод для 5 останніх тайтлів)
 - особистий лічильник переглядів та сумарний лічильник друзів
 - рекомендації між друзями
 - система друзів через інвайт-токен або посилання
@@ -18,6 +19,7 @@ cd bot-service && npm install
 cd ../webapp-service && npm install
 cd ../frontend && npm install
 cp .env.example .env
+cp .env.local.example .env.local
 ```
 
 Заповни значення в `.env`:
@@ -25,6 +27,7 @@ cp .env.example .env
 - `TELEGRAM_BOT_USERNAME` (для інвайт-посилань)
 - `WATCH_API_URL` (URL сервісу `watch-api`, наприклад `http://watch-api:8000`)
 - `WATCH_SOURCES_ALLOWLIST` (опційно, список джерел `anicli_api` через кому)
+- `BOT_SEARCH_MODE` (`catalog` рекомендовано, `local` як fallback)
 - `DB_CLIENT` (`pg` для docker compose, `sqlite3` для локальної sqlite)
 - `DATABASE_URL` (обов'язково для `pg`)
 - `WEB_APP_URL` (публічний URL mini app, зазвичай `https://your-domain/`)
@@ -37,7 +40,7 @@ cp .env.example .env
 ## Запуск (Docker + Postgres)
 
 ```bash
-docker compose up --build
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
 Gateway: `http://localhost:8080`
@@ -75,6 +78,65 @@ TLS сертифікати Caddy отримає автоматично та зб
 
 Health gateway: `http://localhost:8080/healthz`
 
+## Нотатки міграції (актуально)
+
+Репозиторій повністю переведено на мікросервіси (HTTP-only, без брокера). Старий монолітний backend видалено/розділено.
+
+Цілі (MVP):
+- Зберегти роботу бота і Mini App.
+- Залишити `watch-api` окремим сервісом.
+- Пропускати трафік через єдиний API Gateway.
+
+Сервіси (поточні):
+- `gateway-service`: публічний вхід, request id, таймаути, ретраї GET, маршрутизація:
+- `/api/*` -> `webapp-service`
+- `/webhook` -> `bot-service`
+- `/api/v1/catalog/*` -> `catalog-service`
+- `/api/v1/list/*` -> `list-service`
+- `/api/watch/*` -> `watch-api` (rewrite prefix)
+- `webapp-service`: API Mini App (`/api/webapp/*`, dashboard), запускає міграції
+- `bot-service`: Telegram bot + webhook receiver (через gateway)
+- `catalog-service`: пошук + best-match + кеш
+- `list-service`: CRUD списків, внутрішній токен (опційно в dev)
+- `watch-api`: FastAPI сервіс посилань (`/v1/health`, `/v1/search`, `/v1/episodes`, ...)
+
+Local (microservices):
+```bash
+docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up --build
+```
+
+Dev (hot reload):
+```bash
+docker compose --env-file .env.local -f docker-compose.dev.yml --profile frontend up --build
+```
+
+Endpoints:
+- Gateway: `http://localhost:8080/healthz`
+- Webapp service: internal (health: `http://webapp:8080/healthz`)
+- Bot service: internal (health: `http://bot:8080/healthz`)
+- Watch service: via gateway: `http://localhost:8080/api/watch/v1/health`
+
+Internal token:
+- Gateway прокидає `X-Internal-Service-Token` в `catalog-service`/`list-service`.
+- Якщо `INTERNAL_SERVICE_TOKEN` порожній, сервіси приймають запити в dev.
+
+TODO (post-MVP):
+- Перенести залишкові DB операції з `bot-service` у `list-service`.
+- Виділити окремий job/cron для міграцій (зараз їх запускає `webapp-service`).
+
+### Канонічне об'єднання каталогу та локалізація
+
+- `catalog-service` об'єднує дублікати джерел (`jikan:<id>` + `shikimori:<id>`) в один канонічний запис: `uid=mal:<id>`.
+- У відповіді пошуку тепер є:
+  - `legacyUids` (вихідні source UID, пов'язані з канонічним UID)
+  - `sourceRefs` (референси за джерелами)
+  - опційно `synopsisRu`, `synopsisUk`
+- Політика локалізації:
+  - `titleRu` / `synopsisRu`: пріоритет Shikimori
+  - `titleEn` / `synopsisEn`: пріоритет Jikan
+  - `titleUk` / `synopsisUk`: переклад RU->UK, fallback EN->UK
+- Зворотна сумісність: старі source UID резолвляться через таблицю `anime_uid_aliases`.
+
 ## Запуск (без Docker)
 
 Використай sqlite (запусти сервіси окремо):
@@ -102,7 +164,7 @@ docker compose exec webapp npm run migrate
 ## Команди Telegram
 
 - `/search <title>`
-- `/watch <uid>`
+- `/watch <uid>` (`mal:<id>` канонічний; старі source UID також приймаються)
 - `/watched`
 - `/unwatch <uid>`
 - `/plan <uid>`
@@ -115,6 +177,7 @@ docker compose exec webapp npm run migrate
 - `/recommendations`
 - `/unrecommend <uid>`
 - `/feed` (рекомендації від друзів)
+- `/continue`
 - `/invite`
 - `/join <token>`
 - `/friends`
@@ -132,6 +195,7 @@ docker compose exec webapp npm run migrate
 - `GET /` (Mini App UI)
 - `POST /api/telegram/validate-init-data` (валідувати Telegram WebApp initData)
 - `POST /api/webapp/dashboard` (безпечний дашборд через initData; використовується Mini App)
+- `POST /api/webapp/watch/progress/start` (фіксувати старт перегляду)
 - `POST /api/webapp/watch/search` (посилання: пошук)
 - `POST /api/webapp/watch/episodes` (посилання: епізоди)
 - `POST /api/webapp/watch/sources` (посилання: джерела для епізоду)
@@ -167,13 +231,14 @@ curl -X POST http://localhost:8080/api/telegram/validate-init-data \
 - `users`
 - `anime`
 - `user_anime_lists` (`watched`, `planned`, `favorite`, `watch_count`)
+- `user_watch_progress` (останній розпочатий епізод/джерело на користувача)
 - `user_recommendations`
 - `friendships`
 - `friend_invites`
 
 ## Швидкий тест через Cloudflared
 
-1. Запусти сервіси: `docker compose up -d --build`
+1. Запусти сервіси: `docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up -d --build`
 2. Запусти тунелі (frontend + gateway):
 
 ```bash

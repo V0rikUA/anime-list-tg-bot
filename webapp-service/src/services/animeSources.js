@@ -36,6 +36,10 @@ function cacheSet(cache, key, value, ttlMs = 6 * 60 * 60 * 1000) {
  * @property {string|null} imageSmall
  * @property {string|null} imageLarge
  * @property {string|null} synopsisEn
+ * @property {string|null=} synopsisRu
+ * @property {string|null=} synopsisUk
+ * @property {string[]=} legacyUids
+ * @property {Record<string, {uid: string, externalId: number|null, url: string|null}>=} sourceRefs
  */
 
 function scoreToNumber(score) {
@@ -65,13 +69,17 @@ function normalize(item) {
     url: item.url,
     imageSmall: item.imageSmall ?? null,
     imageLarge: item.imageLarge ?? null,
-    synopsisEn: item.synopsisEn ?? null
+    synopsisEn: item.synopsisEn ?? null,
+    synopsisRu: item.synopsisRu ?? null,
+    synopsisUk: item.synopsisUk ?? null,
+    legacyUids: Array.isArray(item.legacyUids) ? item.legacyUids : null,
+    sourceRefs: item.sourceRefs || null
   };
 }
 
 function parseUid(uidRaw) {
   const uid = String(uidRaw || '').trim();
-  const m = uid.match(/^(jikan|shikimori|anilist):(\d+)$/);
+  const m = uid.match(/^(jikan|shikimori|anilist|mal):(\d+)$/);
   if (!m) return null;
   return { source: m[1], id: Number(m[2]), uid };
 }
@@ -86,7 +94,8 @@ async function fetchJikanDetails(id) {
     uid: `jikan:${id}`,
     source: 'jikan',
     externalId: id,
-    title: anime?.title || anime?.title_english || anime?.title_japanese || 'Unknown title',
+    title: anime?.title_english || anime?.title || anime?.title_japanese || 'Unknown title',
+    titleEn: anime?.title_english || anime?.title || anime?.title_japanese || null,
     episodes: anime?.episodes ?? null,
     score: scoreToNumber(anime?.score),
     status: anime?.status ?? null,
@@ -119,7 +128,7 @@ async function fetchShikimoriDetails(id) {
     url: shikimoriAnimeLink(id),
     imageSmall: shikimoriAssetUrl(anime?.image?.preview) || null,
     imageLarge: shikimoriAssetUrl(anime?.image?.original) || null,
-    synopsisEn: anime?.description ? String(anime.description) : null
+    synopsisRu: anime?.description ? String(anime.description) : null
   });
 }
 
@@ -160,6 +169,7 @@ async function fetchAniListDetails(id) {
     source: 'anilist',
     externalId: id,
     title: anime?.title?.english || anime?.title?.romaji || anime?.title?.native || 'Unknown title',
+    titleEn: anime?.title?.english || anime?.title?.romaji || anime?.title?.native || null,
     episodes: anime?.episodes ?? null,
     score: scoreToNumber(anime?.averageScore ? anime.averageScore / 10 : null),
     status: anime?.status ?? null,
@@ -193,7 +203,8 @@ async function searchJikan(query, limit) {
     uid: `jikan:${anime.mal_id}`,
     source: 'jikan',
     externalId: anime.mal_id,
-    title: anime.title,
+    title: anime.title_english || anime.title || anime.title_japanese || 'Unknown title',
+    titleEn: anime.title_english || anime.title || anime.title_japanese || null,
     episodes: anime.episodes,
     score: scoreToNumber(anime.score),
     status: anime.status,
@@ -230,7 +241,7 @@ async function searchShikimori(query, limit) {
       url: shikimoriAnimeLink(id),
       imageSmall: shikimoriAssetUrl(anime?.image?.preview) || null,
       imageLarge: shikimoriAssetUrl(anime?.image?.original) || null,
-      synopsisEn: anime?.description ? String(anime.description) : null
+      synopsisRu: anime?.description ? String(anime.description) : null
     });
   });
 }
@@ -286,6 +297,7 @@ async function searchAniList(query, limit) {
     source: 'anilist',
     externalId: anime.id,
     title: anime.title?.english || anime.title?.romaji || 'Unknown title',
+    titleEn: anime.title?.english || anime.title?.romaji || null,
     episodes: anime.episodes,
     score: scoreToNumber(anime.averageScore ? anime.averageScore / 10 : null),
     status: anime.status,
@@ -334,10 +346,50 @@ export async function fetchAnimeDetails(uid) {
   const cached = cacheGet(detailsCache, parsed.uid);
   if (cached) return cached;
 
-  const details = parsed.source === 'jikan'
-    ? await fetchJikanDetails(parsed.id)
-    : (parsed.source === 'shikimori' ? await fetchShikimoriDetails(parsed.id) : await fetchAniListDetails(parsed.id));
+  let details;
+  if (parsed.source === 'jikan') {
+    details = await fetchJikanDetails(parsed.id);
+  } else if (parsed.source === 'shikimori') {
+    details = await fetchShikimoriDetails(parsed.id);
+  } else if (parsed.source === 'anilist') {
+    details = await fetchAniListDetails(parsed.id);
+  } else {
+    const [jikan, shikimori] = await Promise.all([
+      fetchJikanDetails(parsed.id).catch(() => null),
+      fetchShikimoriDetails(parsed.id).catch(() => null)
+    ]);
+    if (!jikan && !shikimori) {
+      details = null;
+    } else {
+      const legacyUids = [shikimori?.uid, jikan?.uid].filter(Boolean);
+      details = normalize({
+        uid: `mal:${parsed.id}`,
+        source: shikimori ? 'shikimori' : 'jikan',
+        externalId: parsed.id,
+        title: shikimori?.titleRu || jikan?.titleEn || shikimori?.title || jikan?.title || 'Unknown title',
+        titleEn: jikan?.titleEn || jikan?.title || shikimori?.titleEn || shikimori?.title || null,
+        titleRu: shikimori?.titleRu || null,
+        episodes: shikimori?.episodes ?? jikan?.episodes ?? null,
+        score: shikimori?.score ?? jikan?.score ?? null,
+        status: shikimori?.status ?? jikan?.status ?? null,
+        url: shikimori?.url ?? jikan?.url ?? null,
+        imageSmall: shikimori?.imageSmall ?? jikan?.imageSmall ?? null,
+        imageLarge: shikimori?.imageLarge ?? jikan?.imageLarge ?? null,
+        synopsisEn: jikan?.synopsisEn ?? null,
+        synopsisRu: shikimori?.synopsisRu ?? null,
+        legacyUids,
+        sourceRefs: {
+          ...(jikan ? { jikan: { uid: jikan.uid, externalId: jikan.externalId, url: jikan.url ?? null } } : null),
+          ...(shikimori
+            ? { shikimori: { uid: shikimori.uid, externalId: shikimori.externalId, url: shikimori.url ?? null } }
+            : null)
+        }
+      });
+    }
+  }
 
-  cacheSet(detailsCache, parsed.uid, details);
+  if (details) {
+    cacheSet(detailsCache, parsed.uid, details);
+  }
   return details;
 }

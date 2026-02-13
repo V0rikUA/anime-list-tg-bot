@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY . .
 
-RUN npm run build
+RUN NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=512 npm run build
 
 EXPOSE 3000
 

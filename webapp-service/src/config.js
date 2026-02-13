@@ -13,6 +13,15 @@ const rootEnvPath = path.resolve(__dirname, '..', '..', '.env');
 if (fs.existsSync(rootEnvPath)) {
   dotenv.config({ path: rootEnvPath });
 }
+const rootEnvLocalPath = path.resolve(__dirname, '..', '..', '.env.local');
+if (fs.existsSync(rootEnvLocalPath)) {
+  // Local overrides (kept out of git), applied after `.env`.
+  dotenv.config({ path: rootEnvLocalPath });
+}
+
+function normalizeBaseUrl(raw, fallback) {
+  return String(raw || fallback || '').trim().replace(/\/+$/, '');
+}
 
 function toInt(name, value, fallback) {
   const parsed = Number(value ?? fallback);
@@ -21,6 +30,8 @@ function toInt(name, value, fallback) {
   }
   return parsed;
 }
+
+const apiGatewayUrl = normalizeBaseUrl(process.env.API_GATEWAY_URL, 'http://gateway:8080');
 
 export const config = {
   port: toInt('PORT', process.env.PORT, 8080),
@@ -33,11 +44,12 @@ export const config = {
   dbPath: path.resolve(process.env.DB_PATH || './data/anime.sqlite3'),
   databaseUrl: process.env.DATABASE_URL || '',
 
-  watchApiUrl: process.env.WATCH_API_URL || 'http://watch-api:8000',
+  apiGatewayUrl,
+  watchApiUrl: `${apiGatewayUrl}/api/watch`,
   watchSourcesAllowlist: process.env.WATCH_SOURCES_ALLOWLIST || '',
 
-  catalogServiceUrl: (process.env.CATALOG_SERVICE_URL || 'http://catalog:8080').replace(/\/+$/, ''),
-  listServiceUrl: (process.env.LIST_SERVICE_URL || 'http://list:8080').replace(/\/+$/, ''),
+  catalogServiceUrl: `${apiGatewayUrl}/api`,
+  listServiceUrl: `${apiGatewayUrl}/api`,
   internalServiceToken: String(process.env.INTERNAL_SERVICE_TOKEN || '').trim(),
 
   // Extra diagnostic logging for Mini App issues; keep off in production.

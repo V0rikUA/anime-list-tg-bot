@@ -17,7 +17,8 @@ function sha1(text) {
  * @returns {'en'|'ru'|'uk'}
  */
 export function normalizeLang(raw) {
-  const v = String(raw || '').toLowerCase();
+  const v = String(raw || '').trim().toLowerCase();
+  if (v.startsWith('en')) return 'en';
   if (v.startsWith('ru')) return 'ru';
   if (v.startsWith('uk')) return 'uk';
   return 'en';
@@ -43,8 +44,56 @@ function cacheSet(key, value, ttlMs = 12 * 60 * 60 * 1000) {
   translateCache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
-function looksCyrillic(text) {
-  return /[\u0400-\u04FF]/.test(String(text || ''));
+function normalizeSourceLang(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  if (v.startsWith('en')) return 'en';
+  if (v.startsWith('ru')) return 'ru';
+  if (v.startsWith('uk')) return 'uk';
+  return 'auto';
+}
+
+async function doTranslate(text, { sourceLang, targetLang }) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+
+  const target = normalizeLang(targetLang);
+  const source = normalizeSourceLang(sourceLang);
+  if (source !== 'auto' && source === target) return t;
+
+  const key = `${source}:${target}:${sha1(t)}`;
+  const cached = cacheGet(key);
+  if (cached) return cached;
+
+  const url = new URL('https://translate.googleapis.com/translate_a/single');
+  url.searchParams.set('client', 'gtx');
+  url.searchParams.set('sl', source);
+  url.searchParams.set('tl', target);
+  url.searchParams.set('dt', 't');
+  url.searchParams.set('q', t);
+
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return t;
+    const json = await res.json().catch(() => null);
+    const parts = Array.isArray(json?.[0]) ? json[0] : [];
+    const out = parts.map((p) => (Array.isArray(p) ? p[0] : '')).join('').trim();
+    const translated = out || t;
+    cacheSet(key, translated);
+    return translated;
+  } catch {
+    return t;
+  }
+}
+
+/**
+ * Translate with explicit source and target language.
+ *
+ * @param {string} text
+ * @param {{from: 'en'|'ru'|'uk', to: 'en'|'ru'|'uk'}} options
+ * @returns {Promise<string>}
+ */
+export async function translateText(text, { from, to }) {
+  return doTranslate(text, { sourceLang: from, targetLang: to });
 }
 
 /**
@@ -56,35 +105,6 @@ function looksCyrillic(text) {
  * @returns {Promise<string>}
  */
 export async function translateShort(text, targetLang) {
-  const t = String(text || '').trim();
-  if (!t) return '';
-
   const lang = normalizeLang(targetLang);
-  if (lang === 'en') return t;
-
-  // If title is already Cyrillic, don't "re-translate" it.
-  if (looksCyrillic(t) && (lang === 'ru' || lang === 'uk')) return t;
-
-  const key = `${lang}:${sha1(t)}`;
-  const cached = cacheGet(key);
-  if (cached) return cached;
-
-  const url = new URL('https://translate.googleapis.com/translate_a/single');
-  url.searchParams.set('client', 'gtx');
-  url.searchParams.set('sl', 'auto');
-  url.searchParams.set('tl', lang);
-  url.searchParams.set('dt', 't');
-  url.searchParams.set('q', t);
-
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!res.ok) return t;
-
-  const json = await res.json().catch(() => null);
-  const parts = Array.isArray(json?.[0]) ? json[0] : [];
-  const out = parts.map((p) => (Array.isArray(p) ? p[0] : '')).join('');
-  const translated = out || t;
-
-  cacheSet(key, translated);
-  return translated;
+  return doTranslate(text, { sourceLang: 'auto', targetLang: lang });
 }
-

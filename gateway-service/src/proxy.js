@@ -33,6 +33,14 @@ export async function readRawBody(request) {
   const method = String(request.method || 'GET').toUpperCase();
   if (method === 'GET' || method === 'HEAD') return null;
 
+  // Fastify may already parse JSON/form bodies before route handlers run.
+  // In that case request.raw stream can be empty; forward the parsed body instead.
+  if (request.body !== undefined && request.body !== null) {
+    if (Buffer.isBuffer(request.body)) return request.body;
+    if (typeof request.body === 'string') return Buffer.from(request.body);
+    return Buffer.from(JSON.stringify(request.body));
+  }
+
   const chunks = [];
   for await (const chunk of request.raw) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -98,4 +106,3 @@ export async function proxyFetch({
     }
   }
 }
-
