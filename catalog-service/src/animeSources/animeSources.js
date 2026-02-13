@@ -134,10 +134,18 @@ export async function searchAnimeMultiSource({ query, limit = 10, sources = ['ji
     .map((s) => String(s || '').trim().toLowerCase())
     .filter(Boolean);
 
+  function catchSrc(name, promise) {
+    return promise.catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn(`[catalog] ${name} search failed for q="${q}": ${err?.message || String(err)}`);
+      return [];
+    });
+  }
+
   const tasks = [];
-  if (srcs.includes('jikan')) tasks.push(searchJikan(q, safeLimit).catch(() => []));
-  if (srcs.includes('shikimori')) tasks.push(searchShikimori(q, safeLimit).catch(() => []));
-  if (srcs.includes('anilist')) tasks.push(searchAniList(q, safeLimit).catch(() => []));
+  if (srcs.includes('jikan')) tasks.push(catchSrc('jikan', searchJikan(q, safeLimit)));
+  if (srcs.includes('shikimori')) tasks.push(catchSrc('shikimori', searchShikimori(q, safeLimit)));
+  if (srcs.includes('anilist')) tasks.push(catchSrc('anilist', searchAniList(q, safeLimit)));
 
   const parts = await Promise.all(tasks);
   return parts.flat();

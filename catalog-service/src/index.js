@@ -59,7 +59,10 @@ async function main() {
       items: ranked
     };
 
-    cache.set(cacheKey, out);
+    // Only cache non-empty results to avoid persisting transient API failures.
+    if (ranked.length > 0) {
+      cache.set(cacheKey, out);
+    }
     return out;
   });
 
