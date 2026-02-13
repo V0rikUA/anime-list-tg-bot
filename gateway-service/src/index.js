@@ -110,6 +110,18 @@ async function main() {
   app.get('/api/v1/catalog/search', async (request, reply) => {
     return handleProxy(request, reply, { upstreamBase: upstreamCatalog, stripPrefix: '/api', addInternalToken: true });
   });
+  app.all('/api/v1/catalog/*', async (request, reply) => {
+    return handleProxy(request, reply, { upstreamBase: upstreamList, stripPrefix: '/api', addInternalToken: true });
+  });
+  app.all('/api/v1/catalog', async (request, reply) => {
+    return handleProxy(request, reply, { upstreamBase: upstreamList, stripPrefix: '/api', addInternalToken: true });
+  });
+  app.all('/api/v1/users/*', async (request, reply) => {
+    return handleProxy(request, reply, { upstreamBase: upstreamList, stripPrefix: '/api', addInternalToken: true });
+  });
+  app.all('/api/v1/users', async (request, reply) => {
+    return handleProxy(request, reply, { upstreamBase: upstreamList, stripPrefix: '/api', addInternalToken: true });
+  });
   app.all('/api/v1/list/*', async (request, reply) => {
     return handleProxy(request, reply, { upstreamBase: upstreamList, stripPrefix: '/api', addInternalToken: true });
   });
