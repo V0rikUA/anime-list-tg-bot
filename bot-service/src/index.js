@@ -1,12 +1,11 @@
 import telegrafPkg from 'telegraf';
 import Fastify from 'fastify';
 import { config } from './config.js';
-import { AnimeRepository } from './db.js';
 import { createLogger } from './logger.js';
 import { guessLangFromTelegram, helpText, t } from './i18n.js';
 import { searchAnime as searchAnimeLocal } from './services/animeSources.js';
 import { catalogSearch } from './services/catalogClient.js';
-import { listProgressStart, listRecentProgress } from './services/listClient.js';
+import * as listClient from './services/listClient.js';
 import { translateShort, translateText } from './services/translate.js';
 import {
   formatFriends,
@@ -203,8 +202,8 @@ function uiLabels(lang) {
   };
 }
 
-async function ensureUserAndLang(ctx, repository) {
-  const user = await repository.ensureUser(ctx.from);
+async function ensureUserAndLang(ctx) {
+  const user = await listClient.ensureUser(ctx.from);
   return user?.lang || guessLangFromTelegram(ctx.from);
 }
 
@@ -331,19 +330,22 @@ async function renderScreen(ctx, session, text, keyboard) {
   return sentId || null;
 }
 
-async function waitForRepositoryReady(repository) {
+// ---------------------------------------------------------------------------
+// Wait for list-service to be ready before accepting traffic
+// ---------------------------------------------------------------------------
+
+async function waitForListServiceReady() {
   for (let attempt = 1; attempt <= config.startupMaxRetries; attempt += 1) {
     try {
-      await repository.init();
-      const health = await repository.checkHealth();
+      const health = await listClient.checkHealth();
       if (!health.ok) {
-        throw new Error(health.error || 'unknown database health error');
+        throw new Error(health.error || 'unknown list-service health error');
       }
 
-      logger.info('database is healthy', { attempt });
+      logger.info('list-service is healthy', { attempt });
       return;
     } catch (error) {
-      logger.warn('database is not ready yet', {
+      logger.warn('list-service is not ready yet', {
         attempt,
         maxRetries: config.startupMaxRetries,
         error: error.message
@@ -358,13 +360,7 @@ async function waitForRepositoryReady(repository) {
   }
 }
 
-const repository = new AnimeRepository({
-  client: config.dbClient,
-  dbPath: config.dbPath,
-  databaseUrl: config.databaseUrl
-});
-
-await waitForRepositoryReady(repository);
+await waitForListServiceReady();
 
 const bot = config.telegramToken ? new Telegraf(config.telegramToken) : null;
 
@@ -430,7 +426,7 @@ if (!bot) {
 
     if (state.id === ANIME_ACTIONS) {
       const uid = String(state.uid || '').trim();
-      const anime = uid ? await repository.getCatalogItemLocalized(uid, lang) : null;
+      const anime = uid ? await listClient.getCatalogItemLocalized(uid, lang) : null;
       if (!anime) {
         session.current = { id: HOME };
         return renderScreen(ctx, session, t(lang, 'unknown_id'), mainMenuKeyboard(ctx, lang));
@@ -448,32 +444,32 @@ if (!bot) {
       const kind = String(state.kind || '');
 
       if (kind === 'watched') {
-        const items = await repository.getWatchedWithFriendStats(String(ctx.from.id));
+        const items = await listClient.getWatchedWithFriendStats(String(ctx.from.id));
         const text = formatTrackedList(labels.watchedTitle, items, { showWatchCounters: true, emptyWord: labels.emptyWord });
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
       if (kind === 'planned') {
-        const items = await repository.getTrackedList(String(ctx.from.id), 'planned');
+        const items = await listClient.getTrackedList(String(ctx.from.id), 'planned');
         const text = formatTrackedList(labels.plannedTitle, items, { emptyWord: labels.emptyWord });
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
       if (kind === 'favorites') {
-        const items = await repository.getTrackedList(String(ctx.from.id), 'favorite');
+        const items = await listClient.getTrackedList(String(ctx.from.id), 'favorite');
         const text = formatTrackedList(labels.favoritesTitle, items, { emptyWord: labels.emptyWord });
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
       if (kind === 'feed') {
-        const items = await repository.getRecommendationsFromFriends(String(ctx.from.id));
+        const items = await listClient.getRecommendationsFromFriends(String(ctx.from.id));
         const text = formatRecommendationsFromFriends(items, labels.recsFromFriends);
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
       if (kind === 'continue') {
         try {
-          const out = await listRecentProgress({
+          const out = await listClient.listRecentProgress({
             telegramUserId: String(ctx.from.id),
             limit: 5,
             lang
@@ -502,13 +498,13 @@ if (!bot) {
       }
 
       if (kind === 'friends') {
-        const friends = await repository.getFriends(String(ctx.from.id));
+        const friends = await listClient.getFriends(String(ctx.from.id));
         const text = formatFriends(friends, labels.friends);
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
 
       if (kind === 'recommendations') {
-        const items = await repository.getOwnRecommendations(String(ctx.from.id));
+        const items = await listClient.getOwnRecommendations(String(ctx.from.id));
         const text = formatTrackedList(labels.ownRecommendationsTitle, items, { emptyWord: labels.emptyWord });
         return renderScreen(ctx, session, text, Markup.inlineKeyboard([navRow(lang)]));
       }
@@ -518,7 +514,7 @@ if (!bot) {
     }
 
     if (state.id === INVITE) {
-      const token = await repository.createInviteToken(ctx.from);
+      const token = await listClient.createInviteToken(ctx.from);
       const link = buildInviteLink(token);
       const lines = [t(lang, 'invite_token', { token }), t(lang, 'invite_howto')];
       if (link) lines.push(t(lang, 'invite_link', { link }));
@@ -710,7 +706,7 @@ if (!bot) {
         };
       }));
 
-      await repository.upsertCatalog(localized);
+      await listClient.upsertCatalog(localized);
       const compact = localized.slice(0, 10).map((r) => ({
         uid: r.uid,
         title: r.title,
@@ -730,7 +726,7 @@ if (!bot) {
 
 	  async function startWatchFlow(ctx, lang, uid) {
 	    const session = getSession(ctx.from.id);
-	    const anime = await repository.getCatalogItemLocalized(String(uid || '').trim(), lang);
+	    const anime = await listClient.getCatalogItemLocalized(String(uid || '').trim(), lang);
 	    if (!anime) {
 	      await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
 	      return;
@@ -739,7 +735,7 @@ if (!bot) {
 	    await renderScreen(ctx, session, t(lang, 'watch_loading'), Markup.inlineKeyboard([navRow(lang)]));
 	    try {
 	      const q = String(anime.titleEn || anime.title || '').trim();
-	      const map = await repository.getWatchMap(anime.uid);
+	      const map = await listClient.getWatchMap(anime.uid);
 
 	      // If we have a stored binding, try to resolve it to a fresh animeRef and jump to episodes.
 	      if (map?.watchSource && map?.watchUrl) {
@@ -793,7 +789,7 @@ if (!bot) {
 
   bot.start(async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const session = getSession(ctx.from.id);
 
     // Reset navigation but keep the current screen message id (so we can edit it).
@@ -804,7 +800,7 @@ if (!bot) {
 
     const payload = ctx.startPayload || extractArgs(ctx.message?.text || '', 'start');
     if (payload) {
-      const result = await repository.addFriendByToken(ctx.from, payload);
+      const result = await listClient.addFriendByToken(ctx.from, payload);
       const note = result.ok
         ? t(lang, 'friend_added', { label: result.inviter.label })
         : (result.reason === 'self_friend' ? t(lang, 'cannot_add_self') : t(lang, 'invalid_invite'));
@@ -816,87 +812,87 @@ if (!bot) {
 
   bot.help(async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: HELP });
   });
 
   bot.command('lang', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LANG });
   });
 
   bot.command('search', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const query = extractArgs(ctx.message?.text || '', 'search');
     await performSearch(ctx, lang, query);
   });
 
   bot.command('app', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: APP });
   });
 
   async function resolveAnimeFromUid(uidRaw, lang) {
     const uid = String(uidRaw || '').trim();
     if (!uid) return null;
-    return repository.getCatalogItemLocalized(uid, lang);
+    return listClient.getCatalogItemLocalized(uid, lang);
   }
 
   bot.command('watched', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'watched' });
   });
 
   bot.command('planned', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'planned' });
   });
 
   bot.command('favorites', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'favorites' });
   });
 
   bot.command('feed', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'feed' });
   });
 
   bot.command('continue', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'continue' });
   });
 
   bot.command('friends', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'friends' });
   });
 
   bot.command('invite', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: INVITE });
   });
 
   bot.command('join', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const token = extractArgs(ctx.message?.text || '', 'join');
     if (!token) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_join') });
       return;
     }
 
-    const result = await repository.addFriendByToken(ctx.from, token);
+    const result = await listClient.addFriendByToken(ctx.from, token);
     const text = result.ok
       ? t(lang, 'friend_added', { label: result.inviter.label })
       : (result.reason === 'self_friend' ? t(lang, 'cannot_add_self') : t(lang, 'invalid_invite'));
@@ -905,7 +901,7 @@ if (!bot) {
 
   bot.command('watch', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'watch');
     const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
@@ -913,8 +909,8 @@ if (!bot) {
       return;
     }
 
-    await repository.addToTrackedList(ctx.from, 'watched', anime);
-    const stats = await repository.getWatchStats(String(ctx.from.id), anime.uid);
+    await listClient.addToTrackedList(String(ctx.from.id), 'watched', anime);
+    const stats = await listClient.getWatchStats(String(ctx.from.id), anime.uid);
     await pushAndGo(ctx, lang, {
       id: NOTICE,
       text: t(lang, 'saved_watched', { title: anime.title, you: stats.userWatchCount, friends: stats.friendsWatchCount })
@@ -923,20 +919,20 @@ if (!bot) {
 
   bot.command('unwatch', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'unwatch');
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unwatch') });
       return;
     }
 
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'watched', uid);
+    const removed = await listClient.removeFromTrackedList(String(ctx.from.id), 'watched', uid);
     await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_watched', { uid }) : t(lang, 'not_in_watched') });
   });
 
   bot.command('plan', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'plan');
     const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
@@ -944,26 +940,26 @@ if (!bot) {
       return;
     }
 
-    await repository.addToTrackedList(ctx.from, 'planned', anime);
+    await listClient.addToTrackedList(String(ctx.from.id), 'planned', anime);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_planned', { title: anime.title }) });
   });
 
   bot.command('unplan', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'unplan');
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unplan') });
       return;
     }
 
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'planned', uid);
+    const removed = await listClient.removeFromTrackedList(String(ctx.from.id), 'planned', uid);
     await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_planned', { uid }) : t(lang, 'not_in_planned') });
   });
 
   bot.command('favorite', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'favorite');
     const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
@@ -971,26 +967,26 @@ if (!bot) {
       return;
     }
 
-    await repository.addToTrackedList(ctx.from, 'favorite', anime);
+    await listClient.addToTrackedList(String(ctx.from.id), 'favorite', anime);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_favorite', { title: anime.title }) });
   });
 
   bot.command('unfavorite', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'unfavorite');
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unfavorite') });
       return;
     }
 
-    const removed = await repository.removeFromTrackedList(String(ctx.from.id), 'favorite', uid);
+    const removed = await listClient.removeFromTrackedList(String(ctx.from.id), 'favorite', uid);
     await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_favorite', { uid }) : t(lang, 'not_in_favorites') });
   });
 
   bot.command('recommend', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'recommend');
     const anime = await resolveAnimeFromUid(uid, lang);
     if (!anime) {
@@ -998,32 +994,32 @@ if (!bot) {
       return;
     }
 
-    await repository.addRecommendation(ctx.from, anime);
+    await listClient.addRecommendation(String(ctx.from.id), anime);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'recommended_saved', { title: anime.title }) });
   });
 
   bot.command('recommendations', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: LIST, kind: 'recommendations' });
   });
 
   bot.command('unrecommend', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'unrecommend');
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_unrecommend') });
       return;
     }
 
-    const removed = await repository.removeRecommendation(String(ctx.from.id), uid);
+    const removed = await listClient.removeRecommendation(String(ctx.from.id), uid);
     await pushAndGo(ctx, lang, { id: NOTICE, text: removed ? t(lang, 'removed_recommendation', { uid }) : t(lang, 'not_in_recommendations') });
   });
 
   bot.command('stats', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = extractArgs(ctx.message?.text || '', 'stats');
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'usage_stats') });
@@ -1031,7 +1027,7 @@ if (!bot) {
     }
 
     const anime = await resolveAnimeFromUid(uid, lang);
-    const stats = await repository.getWatchStats(String(ctx.from.id), uid);
+    const stats = await listClient.getWatchStats(String(ctx.from.id), uid);
     const label = anime?.title || uid;
 
     await pushAndGo(ctx, lang, {
@@ -1042,21 +1038,21 @@ if (!bot) {
 
   bot.command('dashboard', async (ctx) => {
     await tryDeleteUserMessage(ctx);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'dashboard_api', { url: `${config.apiBaseUrl}/api/dashboard/${ctx.from.id}` }) });
   });
 
   bot.action('nav:home', async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await goHome(ctx, lang);
   });
 
   bot.action('nav:back', async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
 
     const prev = session.stack.pop();
     if (!prev) {
@@ -1071,7 +1067,7 @@ if (!bot) {
   bot.action(/^menu:(search|watched|planned|favorites|feed|continue|friends|invite|app|lang|help|cancel)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const action = String(ctx.match?.[1] || '');
 
     if (action === 'cancel') {
@@ -1139,7 +1135,7 @@ if (!bot) {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
     const selected = String(ctx.match?.[1] || 'en');
-    const out = await repository.setUserLang(String(ctx.from.id), selected);
+    const out = await listClient.setUserLang(String(ctx.from.id), selected);
     const lang = out.ok ? out.lang : guessLangFromTelegram(ctx.from);
     await goHome(ctx, lang, t(lang, 'lang_updated', { lang: (LANG_LABELS[lang] || lang) }));
   });
@@ -1147,7 +1143,7 @@ if (!bot) {
   bot.action(/^pick:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const idx = Number(ctx.match?.[1] || -1);
     const results = session.search?.results;
 
@@ -1163,7 +1159,7 @@ if (!bot) {
   bot.action(/^continue:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const idx = Number(ctx.match?.[1] || -1);
     const items = Array.isArray(session.continueItems) ? session.continueItems : [];
     if (idx < 0 || idx >= items.length) {
@@ -1221,7 +1217,7 @@ if (!bot) {
   bot.action(/^pick:back$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     if (session.search?.results?.length) {
       await pushAndGo(ctx, lang, { id: SEARCH_RESULTS });
       return;
@@ -1232,19 +1228,19 @@ if (!bot) {
   bot.action(/^act:(watch|plan|favorite|recommend):(.+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const kind = String(ctx.match?.[1] || '');
     const uid = String(ctx.match?.[2] || '').trim();
 
-    const anime = await repository.getCatalogItemLocalized(uid, lang);
+    const anime = await listClient.getCatalogItemLocalized(uid, lang);
     if (!anime) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'unknown_id') });
       return;
     }
 
     if (kind === 'watch') {
-      await repository.addToTrackedList(ctx.from, 'watched', anime);
-      const stats = await repository.getWatchStats(String(ctx.from.id), uid);
+      await listClient.addToTrackedList(String(ctx.from.id), 'watched', anime);
+      const stats = await listClient.getWatchStats(String(ctx.from.id), uid);
       await pushAndGo(ctx, lang, {
         id: NOTICE,
         text: t(lang, 'saved_watched', { title: anime.title, you: stats.userWatchCount, friends: stats.friendsWatchCount })
@@ -1253,25 +1249,25 @@ if (!bot) {
     }
 
     if (kind === 'plan') {
-      await repository.addToTrackedList(ctx.from, 'planned', anime);
+      await listClient.addToTrackedList(String(ctx.from.id), 'planned', anime);
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_planned', { title: anime.title }) });
       return;
     }
 
     if (kind === 'favorite') {
-      await repository.addToTrackedList(ctx.from, 'favorite', anime);
+      await listClient.addToTrackedList(String(ctx.from.id), 'favorite', anime);
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'added_favorite', { title: anime.title }) });
       return;
     }
 
-    await repository.addRecommendation(ctx.from, anime);
+    await listClient.addRecommendation(String(ctx.from.id), anime);
     await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'recommended_saved', { title: anime.title }) });
   });
 
   bot.action(/^watch:start:(.+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = String(ctx.match?.[1] || '').trim();
     await startWatchFlow(ctx, lang, uid);
   });
@@ -1279,7 +1275,7 @@ if (!bot) {
   bot.action(/^watch:rebind$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const uid = String(session.watch?.uid || '').trim();
     if (!uid) {
       await pushAndGo(ctx, lang, { id: NOTICE, text: t(lang, 'watch_failed') });
@@ -1287,7 +1283,7 @@ if (!bot) {
     }
 
     try {
-      await repository.clearWatchMap(uid);
+      await listClient.clearWatchMap(uid);
     } catch {
       // ignore
     }
@@ -1299,7 +1295,7 @@ if (!bot) {
   bot.action(/^watch:title:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
 
     const idx = Number(ctx.match?.[1] || -1);
     const titles = session.watch?.titles;
@@ -1321,7 +1317,7 @@ if (!bot) {
       const watchSource = String(picked?.source || '').trim();
       const watchUrl = String(picked?.url || '').trim();
       if (uid && watchSource && watchUrl) {
-        await repository.setWatchMap(uid, watchSource, watchUrl, String(picked?.title || '').trim() || null);
+        await listClient.setWatchMap(uid, watchSource, watchUrl, String(picked?.title || '').trim() || null);
       }
     } catch {
       // ignore
@@ -1342,7 +1338,7 @@ if (!bot) {
   bot.action(/^watch:titles:page:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
 
     const page = Number(ctx.match?.[1] || 1);
     const q = String(session.watch?.q || '').trim();
@@ -1373,7 +1369,7 @@ if (!bot) {
   bot.action(/^watch:ep:(.+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
 
     const animeRef = String(session.watch?.animeRef || '').trim();
     const episodeNum = String(ctx.match?.[1] || '').trim();
@@ -1397,7 +1393,7 @@ if (!bot) {
   bot.action(/^watch:src:(\d+)$/, async (ctx) => {
     const session = getSession(ctx.from.id);
     await ackCbQuery(ctx, session);
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
 
     const idx = Number(ctx.match?.[1] || -1);
     const sources = session.watch?.sources;
@@ -1418,7 +1414,7 @@ if (!bot) {
       const progressEpisode = String(session.watch?.episodeNum || '').trim();
       const progressUid = String(session.watch?.uid || '').trim();
       if (progressUid && progressEpisode) {
-        await listProgressStart({
+        await listClient.listProgressStart({
           telegramUserId: String(ctx.from.id),
           animeUid: progressUid,
           episode: {
@@ -1447,7 +1443,7 @@ if (!bot) {
   bot.on('text', async (ctx) => {
     if (ctx.message?.text?.startsWith('/')) return;
 
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     const session = getSession(ctx.from.id);
     const text = String(ctx.message?.text || '');
 
@@ -1470,13 +1466,13 @@ if (!bot) {
     }
 
     // Fallback for non-text updates: keep a consistent single-screen menu.
-    const lang = await ensureUserAndLang(ctx, repository);
+    const lang = await ensureUserAndLang(ctx);
     await goHome(ctx, lang);
   });
 
   bot.catch(async (error, ctx) => {
     logger.error('bot error', error);
-    const lang = ctx?.from ? await ensureUserAndLang(ctx, repository) : 'en';
+    const lang = ctx?.from ? await ensureUserAndLang(ctx) : 'en';
     try {
       await ctx.reply(t(lang, 'unexpected_error'));
     } catch (replyError) {
@@ -1490,9 +1486,9 @@ if (!bot) {
 const httpServer = Fastify({ logger: { level: 'info' } });
 
 httpServer.get('/healthz', async () => {
-  const dbHealth = await repository.checkHealth();
-  if (!dbHealth.ok) return { ok: false, database: dbHealth };
-  return { ok: true, database: dbHealth, uptimeSec: Math.floor(process.uptime()) };
+  const health = await listClient.checkHealth();
+  if (!health.ok) return { ok: false, listService: health };
+  return { ok: true, listService: health, uptimeSec: Math.floor(process.uptime()) };
 });
 
 // Telegram webhook endpoint. Must respond 200 quickly.
@@ -1571,7 +1567,6 @@ async function shutdown(signal) {
       bot.stop(signal);
     }
     await httpServer.close();
-    await repository.destroy();
     process.exit(0);
   } catch (error) {
     logger.error('shutdown failed', error);
