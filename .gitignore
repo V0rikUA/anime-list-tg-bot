@@ -37,3 +37,4 @@ __pycache__/
 
 # Local helper scripts with machine-specific deployment settings
 push-env.sh
+deploy-new-version.sh

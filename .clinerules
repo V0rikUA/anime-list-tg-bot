@@ -1,9 +1,10 @@
-# Claude Code optimization rules
+# Claude Code and CODEX optimization rules
 # Reduces token usage by controlling what gets read automatically
 
 alwaysReadFiles:
   - README.md
   - ARCHITECTURE.md
+  - CONTRIBUTING.md
 
 ignoreFiles:
   - "*.log"
@@ -20,7 +21,6 @@ ignoreFiles:
   - "*.pyc"
   - test/
   - tests/
-  - k8s/
   - docker/
 
 defaultContext: minimal

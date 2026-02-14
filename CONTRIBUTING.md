@@ -20,7 +20,7 @@ When opening an issue, provide specific context to minimize investigation time:
 - [ ] Identify the affected **service** (bot, webapp, catalog, list, gateway, watch-api, frontend)
 - [ ] Reference **exact file paths and line numbers** (e.g., `webapp-service/src/db.js:150`)
 - [ ] Include **relevant log output** (strip sensitive data)
-- [ ] Specify **environment** (Docker, local, K8s) and **config** (`BOT_SEARCH_MODE`, `DB_CLIENT`)
+- [ ] Specify **environment** (Docker, local) and **config** (`BOT_SEARCH_MODE`, `DB_CLIENT`)
 - [ ] For UI issues: include browser console errors and screenshot
 
 ## Context Guidelines

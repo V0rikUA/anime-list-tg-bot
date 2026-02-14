@@ -2,7 +2,7 @@
 
 ## Overview
 
-Anime List Telegram Bot is a microservices-based system for tracking anime, searching from multiple APIs (Jikan + Shikimori/AniList), managing watch lists, and providing a Telegram Mini App dashboard. It supports three languages (EN, RU, UK) and deploys via Docker Compose or Kubernetes.
+Anime List Telegram Bot is a microservices-based system for tracking anime, searching from multiple APIs (Jikan + Shikimori/AniList), managing watch lists, and providing a Telegram Mini App dashboard. It supports three languages (EN, RU, UK) and deploys via Docker Compose.
 
 ## Technology Stack
 
@@ -13,7 +13,7 @@ Anime List Telegram Bot is a microservices-based system for tracking anime, sear
 | Frontend | Next.js 14, React 18, Redux Toolkit |
 | Database | PostgreSQL 16 (prod), SQLite (dev) |
 | ORM | Knex 3.1 |
-| Deployment | Docker Compose, Kubernetes, Caddy/Traefik |
+| Deployment | Docker Compose, Traefik |
 
 ## Directory Structure
 
@@ -26,7 +26,6 @@ Anime List Telegram Bot is a microservices-based system for tracking anime, sear
 ├── watch-api/          # Python FastAPI — anime watch source discovery
 ├── frontend/           # Next.js Mini App UI — dashboard, title pages
 ├── docker/             # Docker Compose overlay files
-├── k8s/                # Kubernetes manifests
 └── scripts/            # Helper scripts (cloudflare tunnels)
 ```
 
