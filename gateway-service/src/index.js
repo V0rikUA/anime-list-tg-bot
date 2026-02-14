@@ -137,6 +137,11 @@ async function main() {
     return handleProxy(request, reply, { upstreamBase: upstreamWatch, stripPrefix: '/api/watch' });
   });
 
+  // Health check for list-service (must come before the /api/* catch-all).
+  app.get('/api/healthz', async (request, reply) => {
+    return handleProxy(request, reply, { upstreamBase: upstreamList, forcePath: '/healthz' });
+  });
+
   // Webapp passthrough: preserve existing /api/* paths for Mini App.
   app.all('/api/*', async (request, reply) => {
     return handleProxy(request, reply, { upstreamBase: upstreamWebapp });
