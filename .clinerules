@@ -1,0 +1,26 @@
+# Claude Code optimization rules
+# Reduces token usage by controlling what gets read automatically
+
+alwaysReadFiles:
+  - README.md
+  - ARCHITECTURE.md
+
+ignoreFiles:
+  - "*.log"
+  - node_modules/
+  - __pycache__/
+  - .next/
+  - .git/
+  - "*.lock"
+  - package-lock.json
+  - dist/
+  - build/
+  - coverage/
+  - postgres_data/
+  - "*.pyc"
+  - test/
+  - tests/
+  - k8s/
+  - docker/
+
+defaultContext: minimal
