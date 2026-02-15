@@ -62,8 +62,6 @@ export function applyRecommendationMethods(proto) {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
-        'a.synopsis_json',
-        'a.posters_json',
         'r.anime_uid as list_anime_uid',
         'r.created_at as added_at'
       );
@@ -104,8 +102,6 @@ export function applyRecommendationMethods(proto) {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
-        'a.synopsis_json',
-        'a.posters_json',
         'r.anime_uid as list_anime_uid',
         'r.created_at as recommended_at',
         'u.telegram_id',

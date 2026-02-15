@@ -51,48 +51,12 @@ export function normalizeAnime(item) {
   };
 }
 
-export function parseJsonField(raw, fallback) {
-  const s = String(raw ?? '').trim();
-  if (!s) return fallback;
-  try {
-    const parsed = JSON.parse(s);
-    return parsed && typeof parsed === 'object' ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-export function buildSynopsisJson(anime) {
-  return {
-    en: anime?.synopsisEn ?? null,
-    ru: anime?.synopsisRu ?? null,
-    uk: anime?.synopsisUk ?? null
-  };
-}
-
-export function buildPostersJson(anime) {
-  return {
-    small: anime?.imageSmall ?? null,
-    large: anime?.imageLarge ?? null
-  };
-}
-
 /**
  * Maps a DB row into API shape.
  * @param {any} row
  * @returns {AnimeRow & {addedAt: string|null, watchCount: number}}
  */
 export function mapAnimeRow(row) {
-  const synopsis = parseJsonField(row.synopsis_json, buildSynopsisJson({
-    synopsisEn: row.synopsis_en ?? null,
-    synopsisRu: row.synopsis_ru ?? null,
-    synopsisUk: row.synopsis_uk ?? null
-  }));
-  const posters = parseJsonField(row.posters_json, buildPostersJson({
-    imageSmall: row.image_small ?? null,
-    imageLarge: row.image_large ?? null
-  }));
-
   return {
     uid: row.uid,
     source: row.source,
@@ -110,8 +74,6 @@ export function mapAnimeRow(row) {
     synopsisEn: row.synopsis_en ?? null,
     synopsisRu: row.synopsis_ru ?? null,
     synopsisUk: row.synopsis_uk ?? null,
-    synopsis,
-    posters,
     addedAt: row.added_at || null,
     watchCount: row.watch_count ?? 0
   };
