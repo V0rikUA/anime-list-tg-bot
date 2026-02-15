@@ -1,5 +1,8 @@
 import { guessLangFromTelegram } from '../i18n.js';
 import * as listClient from '../services/listClient.js';
+import { createLogger } from '../logger.js';
+
+const logger = createLogger('helpers');
 
 export function parseEpisodeNumber(labelRaw) {
   const label = String(labelRaw || '').trim();
@@ -58,6 +61,14 @@ export function extractArgs(text, command) {
 }
 
 export async function ensureUserAndLang(ctx) {
-  const user = await listClient.ensureUser(ctx.from);
-  return user?.lang || guessLangFromTelegram(ctx.from);
+  try {
+    const user = await listClient.ensureUser(ctx.from);
+    return user?.lang || guessLangFromTelegram(ctx.from);
+  } catch (err) {
+    logger.warn('ensureUser failed, falling back to telegram language', {
+      userId: String(ctx.from?.id || ''),
+      error: err.message
+    });
+    return guessLangFromTelegram(ctx.from);
+  }
 }

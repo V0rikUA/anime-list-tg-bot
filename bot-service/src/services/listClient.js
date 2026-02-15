@@ -1,6 +1,18 @@
 import { config } from '../config.js';
+import { createLogger } from '../logger.js';
 
-async function callJson(url, { method = 'GET', body = null, timeoutMs = 15000 } = {}) {
+const logger = createLogger('listClient');
+
+function isTransient(err) {
+  return err.name === 'AbortError' ||
+    err.code === 'ECONNRESET' ||
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    err.cause?.code === 'ECONNRESET' ||
+    err.cause?.code === 'ECONNREFUSED';
+}
+
+async function callJsonOnce(url, { method = 'GET', body = null, timeoutMs = 15000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -21,9 +33,37 @@ async function callJson(url, { method = 'GET', body = null, timeoutMs = 15000 } 
       throw err;
     }
     return json;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const wrapped = new Error(`list-service request timed out after ${timeoutMs}ms: ${method} ${url}`);
+      wrapped.code = 'ETIMEDOUT';
+      throw wrapped;
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function callJson(url, opts = {}) {
+  const { retries = 1, retryDelayMs = 1000, ...fetchOpts } = opts;
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await callJsonOnce(url, fetchOpts);
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries && isTransient(err)) {
+        logger.warn('retrying list-service request', {
+          url, method: fetchOpts.method || 'GET', attempt: attempt + 1, error: err.message
+        });
+        await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 function encId(id) {

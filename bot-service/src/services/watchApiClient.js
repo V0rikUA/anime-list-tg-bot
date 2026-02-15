@@ -1,4 +1,7 @@
 import { config } from '../config.js';
+import { createLogger } from '../logger.js';
+
+const logger = createLogger('watchApiClient');
 
 function parseAllowlist(raw) {
   const value = String(raw || '').trim();
@@ -17,7 +20,16 @@ function isAllowedSource(source) {
   return watchAllowlist.has(String(source || '').toLowerCase());
 }
 
-async function fetchJson(url, { timeoutMs = 10000 } = {}) {
+function isTransient(err) {
+  return err.name === 'AbortError' ||
+    err.code === 'ECONNRESET' ||
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+    err.cause?.code === 'ECONNRESET' ||
+    err.cause?.code === 'ECONNREFUSED';
+}
+
+async function fetchJsonOnce(url, { timeoutMs = 10000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -30,9 +42,36 @@ async function fetchJson(url, { timeoutMs = 10000 } = {}) {
       throw err;
     }
     return json;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const wrapped = new Error(`watch-api request timed out after ${timeoutMs}ms: GET ${url}`);
+      wrapped.code = 'ETIMEDOUT';
+      throw wrapped;
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchJson(url, { timeoutMs = 10000, retries = 1, retryDelayMs = 1000 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchJsonOnce(url, { timeoutMs });
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries && isTransient(err)) {
+        logger.warn('retrying watch-api request', {
+          url, attempt: attempt + 1, error: err.message
+        });
+        await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 function requireWatchApiUrl() {
