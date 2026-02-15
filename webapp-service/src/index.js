@@ -153,16 +153,28 @@ async function hydrateMissingAnimeForDashboard(repository, dashboard) {
     }
   }
 
-  let hydrated = false;
+  // Check which UIDs are missing from the local DB.
+  const missing = [];
   for (const uid of uids) {
     const exists = await repository.getCatalogItem(uid);
-    if (exists) continue;
-    const fetched = await fetchAnimeDetails(uid).catch(() => null);
-    if (!fetched) continue;
-    await repository.upsertAnime(fetched);
-    hydrated = true;
+    if (!exists) missing.push(uid);
   }
-  return hydrated;
+
+  if (!missing.length) return false;
+
+  // Hydrate in parallel (max 5 at a time) with a 10s overall timeout
+  // so we never block the dashboard response for too long.
+  const batch = missing.slice(0, 5);
+  const results = await Promise.race([
+    Promise.allSettled(batch.map(async (uid) => {
+      const fetched = await fetchAnimeDetails(uid).catch(() => null);
+      if (fetched) await repository.upsertAnime(fetched);
+      return !!fetched;
+    })),
+    new Promise((resolve) => setTimeout(() => resolve([]), 10000))
+  ]);
+
+  return Array.isArray(results) && results.some((r) => r?.status === 'fulfilled' && r.value);
 }
 
 async function main() {

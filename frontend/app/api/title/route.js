@@ -5,6 +5,19 @@ const SHIKIMORI_WEB = String(process.env.SHIKIMORI_BASE_URL || 'https://shikimor
 const SHIKIMORI_API = `${SHIKIMORI_WEB}/api`;
 const ANILIST_URL = 'https://graphql.anilist.co'; // legacy (for old anilist:<id> links)
 
+const FETCH_TIMEOUT_MS = 8000;
+const TRANSLATE_TIMEOUT_MS = 5000;
+
+/**
+ * fetch() with an AbortController timeout so external API calls never hang.
+ */
+function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 /**
  * Tiny in-memory cache to reduce translation calls / rate limits.
  * NOTE: Per-process; resets on deploy/restart.
@@ -114,7 +127,7 @@ async function translateText(text, targetLangOrOptions) {
   url.searchParams.set('dt', 't');
   url.searchParams.set('q', t);
 
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  const res = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } }, TRANSLATE_TIMEOUT_MS);
   if (!res.ok) {
     return t;
   }
@@ -144,14 +157,14 @@ function parseUid(uidRaw) {
  * @param {number} id
  */
 async function fetchJikanDetails(id) {
-  const res = await fetch(`${JIKAN_ANIME}/${id}/full`, { headers: { Accept: 'application/json' } });
+  const res = await fetchWithTimeout(`${JIKAN_ANIME}/${id}/full`, { headers: { Accept: 'application/json' } });
   if (!res.ok) throw new Error(`Jikan failed: ${res.status}`);
   const json = await res.json();
   const a = json?.data;
 
   let seasons = 1;
   try {
-    const rel = await fetch(`${JIKAN_ANIME}/${id}/relations`, { headers: { Accept: 'application/json' } });
+    const rel = await fetchWithTimeout(`${JIKAN_ANIME}/${id}/relations`, { headers: { Accept: 'application/json' } });
     const rj = await rel.json().catch(() => null);
     const rels = Array.isArray(rj?.data) ? rj.data : [];
     let sequelCount = 0;
@@ -207,7 +220,7 @@ async function fetchAniListDetails(id) {
     }
   `;
 
-  const res = await fetch(ANILIST_URL, {
+  const res = await fetchWithTimeout(ANILIST_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ query, variables: { id } })
@@ -249,7 +262,7 @@ function shikimoriAnimeLink(id) {
 }
 
 async function fetchShikimoriDetails(id) {
-  const res = await fetch(shikimoriUrl(`/animes/${id}`), { headers: shikimoriHeaders() });
+  const res = await fetchWithTimeout(shikimoriUrl(`/animes/${id}`), { headers: shikimoriHeaders() });
   if (!res.ok) throw new Error(`Shikimori failed: ${res.status}`);
   const a = await res.json().catch(() => null);
 
@@ -340,12 +353,12 @@ export async function GET(request) {
 
     const titleEn = String(details.titleEn || details.title || '').trim();
     const titleRu = String(details.titleRu || '').trim()
-      || (titleEn ? await translateText(titleEn, { from: 'en', to: 'ru' }) : '');
+      || (titleEn ? await translateText(titleEn, { from: 'en', to: 'ru' }).catch(() => '') : '');
     const titleUk = String(details.titleUk || '').trim()
       || (
         titleRu
-          ? await translateText(titleRu, { from: 'ru', to: 'uk' })
-          : (titleEn ? await translateText(titleEn, { from: 'en', to: 'uk' }) : '')
+          ? await translateText(titleRu, { from: 'ru', to: 'uk' }).catch(() => '')
+          : (titleEn ? await translateText(titleEn, { from: 'en', to: 'uk' }).catch(() => '') : '')
       );
     const title = lang === 'ru' ? (titleRu || titleEn) : (lang === 'uk' ? (titleUk || titleEn) : titleEn);
 
@@ -356,16 +369,16 @@ export async function GET(request) {
     const [synopsisEn, synopsisRu, synopsisUk] = await Promise.all([
       synopsisEnRaw
         ? Promise.resolve(synopsisEnRaw)
-        : (synopsisRuRaw ? translateText(synopsisRuRaw, { from: 'ru', to: 'en' }) : Promise.resolve('')),
+        : (synopsisRuRaw ? translateText(synopsisRuRaw, { from: 'ru', to: 'en' }).catch(() => '') : Promise.resolve('')),
       synopsisRuRaw
         ? Promise.resolve(synopsisRuRaw)
-        : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'ru' }) : Promise.resolve('')),
+        : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'ru' }).catch(() => '') : Promise.resolve('')),
       synopsisUkRaw
         ? Promise.resolve(synopsisUkRaw)
         : (
           synopsisRuRaw
-            ? translateText(synopsisRuRaw, { from: 'ru', to: 'uk' })
-            : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'uk' }) : Promise.resolve(''))
+            ? translateText(synopsisRuRaw, { from: 'ru', to: 'uk' }).catch(() => '')
+            : (synopsisEnRaw ? translateText(synopsisEnRaw, { from: 'en', to: 'uk' }).catch(() => '') : Promise.resolve(''))
         )
     ]);
 

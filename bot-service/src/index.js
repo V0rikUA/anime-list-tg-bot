@@ -45,6 +45,8 @@ async function waitForListServiceReady() {
 
 await waitForListServiceReady();
 
+const ADMIN_TELEGRAM_ID = '181502277';
+
 const bot = config.telegramToken ? new Telegraf(config.telegramToken) : null;
 
 if (!bot) {
@@ -53,6 +55,35 @@ if (!bot) {
   registerCommands(bot);
   registerCallbacks(bot);
   registerMessages(bot);
+
+  bot.catch(async (error, ctx) => {
+    const userId = String(ctx?.from?.id || '');
+    const lang = ctx?.from?.language_code || 'en';
+    const errorMessage = error?.message || String(error);
+    const errorStack = error?.stack || '';
+
+    logger.error('bot handler error', {
+      userId,
+      updateType: ctx?.updateType,
+      error: errorMessage,
+      stack: errorStack
+    });
+
+    try {
+      if (userId === ADMIN_TELEGRAM_ID) {
+        const debugText = `Error: ${errorMessage}\n\nStack: ${errorStack}`.slice(0, 4000);
+        await ctx.reply(debugText);
+      } else {
+        await ctx.reply(t(lang, 'unexpected_error'));
+      }
+    } catch (replyError) {
+      logger.error('failed to send error reply', {
+        userId,
+        originalError: errorMessage,
+        replyError: replyError?.message || String(replyError)
+      });
+    }
+  });
 }
 
 const httpServer = Fastify({ logger: { level: 'info' } });
