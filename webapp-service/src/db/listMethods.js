@@ -108,8 +108,6 @@ export function applyListMethods(proto) {
         'a.synopsis_en',
         'a.synopsis_ru',
         'a.synopsis_uk',
-        'a.synopsis_json',
-        'a.posters_json',
         'l.anime_uid as list_anime_uid',
         'l.added_at',
         'l.watch_count'
