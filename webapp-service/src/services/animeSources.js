@@ -3,6 +3,15 @@ import { getAnimeById as shikiGetAnimeById, searchAnime as shikiSearchAnime, shi
 const JIKAN_URL = 'https://api.jikan.moe/v4/anime';
 const ANILIST_URL = 'https://graphql.anilist.co'; // legacy (kept for existing anilist:<id> rows)
 
+const FETCH_TIMEOUT_MS = 8000;
+
+function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
 const detailsCache = new Map();
 
 function cacheGet(cache, key) {
@@ -85,7 +94,7 @@ function parseUid(uidRaw) {
 }
 
 async function fetchJikanDetails(id) {
-  const response = await fetch(`${JIKAN_URL}/${id}/full`, { headers: { Accept: 'application/json' } });
+  const response = await fetchWithTimeout(`${JIKAN_URL}/${id}/full`, { headers: { Accept: 'application/json' } });
   if (!response.ok) throw new Error(`Jikan request failed with ${response.status}`);
   const body = await response.json();
   const anime = body?.data;
@@ -148,7 +157,7 @@ async function fetchAniListDetails(id) {
     }
   `;
 
-  const response = await fetch(ANILIST_URL, {
+  const response = await fetchWithTimeout(ANILIST_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -191,7 +200,7 @@ async function searchJikan(query, limit) {
   url.searchParams.set('limit', String(limit));
   url.searchParams.set('sfw', 'true');
 
-  const response = await fetch(url, { headers: { Accept: 'application/json' } });
+  const response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } });
   if (!response.ok) {
     throw new Error(`Jikan request failed with ${response.status}`);
   }
@@ -275,7 +284,7 @@ async function searchAniList(query, limit) {
     }
   `;
 
-  const response = await fetch(ANILIST_URL, {
+  const response = await fetchWithTimeout(ANILIST_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

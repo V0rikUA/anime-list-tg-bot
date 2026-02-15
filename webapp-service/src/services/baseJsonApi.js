@@ -56,7 +56,7 @@ export class BaseJsonApi {
    * @param {Object=} opts
    * @param {number=} opts.ttlMs
    */
-  async getJson(pathname, query = null, { ttlMs = 0 } = {}) {
+  async getJson(pathname, query = null, { ttlMs = 0, timeoutMs = 8000 } = {}) {
     const url = this._url(pathname, query);
     const key = ttlMs ? `GET:${url}` : null;
     if (key) {
@@ -64,7 +64,14 @@ export class BaseJsonApi {
       if (cached) return cached;
     }
 
-    const res = await fetch(url, { headers: this._headers() });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(url, { headers: this._headers(), signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
     if (!res.ok) {
       throw new Error(`${this.name} request failed with ${res.status}`);
     }

@@ -31,7 +31,7 @@ async function main() {
   const app = Fastify({ logger: { level: 'info' } });
 
   const port = envInt('PORT', 8080);
-  const timeoutMs = envInt('UPSTREAM_TIMEOUT_MS', 10_000);
+  const timeoutMs = envInt('UPSTREAM_TIMEOUT_MS', 30_000);
   const getRetryMax = envInt('GET_RETRY_MAX', 2);
 
   const upstreamWebapp = requireEnv('UPSTREAM_WEBAPP_URL', process.env.UPSTREAM_BACKEND_URL || 'http://webapp:8080');
